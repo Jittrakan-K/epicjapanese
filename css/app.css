@@ -124,7 +124,7 @@ kbd, .key {
 .main { min-width: 0; padding: 32px 40px 96px; outline: none; }
 .page { max-width: 1240px; margin: 0 auto; animation: enter 360ms var(--ease) both; }
 .page-narrow { max-width: 880px; }
-@keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes enter { from { transform: translateY(8px); } to { transform: none; } }
 
 /* ---------- type ---------- */
 .eyebrow { font-size: 13px; color: var(--ink-3); display: flex; align-items: center; gap: 8px; }

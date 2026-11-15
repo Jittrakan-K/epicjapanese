@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=Klee+One:wght@400;600&family=Noto+Sans+JP:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css">
+  <link rel="stylesheet" href="css/app.css?v=3">
 </head>
 <body>
   <div class="shell">
@@ -50,7 +50,7 @@
       <a class="icon-btn" href="#/search/" aria-label="ค้นหา"><svg class="i"><use href="#i-search"/></svg></a>
     </header>
 
-    <main class="main" id="view" tabindex="-1"></main>
+    <main class="main" id="view" tabindex="-1"><noscript><div class="card pad">เว็บนี้ต้องเปิด JavaScript</div></noscript></main>
 
     <nav class="tabbar" aria-label="เมนูด่วน">
       <a href="#/" data-nav="map"><svg class="i"><use href="#i-map"/></svg><span>แผนที่</span></a>
@@ -95,12 +95,20 @@
     </defs>
   </svg>
 
-  <script src="data/kana.js"></script>
-  <script src="data/n5.js"></script>
-  <script src="data/n4.js"></script>
-  <script src="data/n3.js"></script>
-  <script src="data/n2.js"></script>
-  <script src="data/n1.js"></script>
-  <script src="js/app.js"></script>
+  <script src="data/kana.js?v=3"></script>
+  <script src="data/n5.js?v=3"></script>
+  <script src="data/n4.js?v=3"></script>
+  <script src="data/n3.js?v=3"></script>
+  <script src="data/n2.js?v=3"></script>
+  <script src="data/n1.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
+  <script>
+    /* ถ้าสคริปต์หลักโหลดไม่ได้ ให้บอกผู้ใช้แทนการแสดงหน้าว่าง */
+    setTimeout(function () {
+      if (window.__ejReady) return;
+      var v = document.getElementById('view');
+      if (v && !v.innerHTML.trim()) v.innerHTML = '<div class="page page-narrow"><div class="card pad"><div class="h3">โหลดเว็บไม่สำเร็จ</div><p class="soft" style="margin-top:4px">กด Ctrl+F5 (หรือ Cmd+Shift+R บน Mac) เพื่อโหลดใหม่แบบล้างแคช</p></div></div>';
+    }, 4000);
+  </script>
 </body>
 </html>

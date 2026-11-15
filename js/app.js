@@ -218,12 +218,16 @@
     if (typeof r === 'string') r = { html: r };
     view.innerHTML = r.html;
     mounted = r;
-    if (r.mount) r.mount();
+    try { if (r.mount) r.mount(); } catch (err) { showError(err); }
     var base = a + '/' + (parts[1] || '');
     if (base !== lastBase) { window.scrollTo(0, 0); lastBase = base; }
     chrome();
   }
-  window.addEventListener('hashchange', route);
+  function showError(err) {
+    view.insertAdjacentHTML('afterbegin', '<div class="card pad" style="margin-bottom:16px;border-color:var(--neg)"><div class="h3">เกิดข้อผิดพลาด</div><p class="soft mono" style="font-size:12px;margin-top:4px">' + esc(err && (err.message || err)) + '</p><p class="soft" style="font-size:13px;margin-top:8px">ลองกด Ctrl+F5 เพื่อโหลดหน้าใหม่ ถ้ายังไม่หายส่งข้อความนี้ให้ผู้ดูแลเว็บ</p></div>');
+  }
+  function safeRoute() { try { route(); } catch (err) { console.error(err); showError(err); } }
+  window.addEventListener('hashchange', safeRoute);
 
   function viewMissing() {
     return '<div class="page page-narrow"><div class="card empty"><div class="h2">ไม่พบหน้านี้</div><p>ลิงก์อาจเปลี่ยนไปแล้ว</p><div class="row-actions"><a class="btn primary" href="#/">กลับแผนที่</a></div></div></div>';
@@ -305,20 +309,26 @@
     if (W < 680) { el.innerHTML = vmapHTML(cur); el.style.height = 'auto'; return; }
     var padX = 48, top = 56, rowH = 128, R = rowH / 2;
     var svg = [], nodes = [];
-    var pts = LEVELS.map(function (lv, i) {
-      var n = lv.stations.length, step = (W - padX * 2) / (n - 1), y = top + i * rowH, rtl = i % 2 === 1;
-      return lv.stations.map(function (st, j) { return { st: st, x: rtl ? W - padX - j * step : padX + j * step, y: y, step: step }; });
+    // สายที่ยาวเกินความกว้างจอจะถูกแบ่งเป็นหลายแถว แล้ววิ่งต่อแบบงูเลื้อย
+    var maxPer = Math.max(6, Math.floor((W - padX * 2) / 96) + 1), rows = [];
+    LEVELS.forEach(function (lv) {
+      var n = lv.stations.length, nr = Math.ceil(n / maxPer), per = Math.ceil(n / nr);
+      for (var r = 0; r < nr; r++) rows.push({ lv: lv, st: lv.stations.slice(r * per, (r + 1) * per), first: r === 0 });
+    });
+    var pts = rows.map(function (row, i) {
+      var n = row.st.length, step = (W - padX * 2) / Math.max(1, n - 1), y = top + i * rowH, rtl = i % 2 === 1;
+      return row.st.map(function (st, j) { return { st: st, x: rtl ? W - padX - j * step : padX + j * step, y: y, step: step }; });
     });
     pts.forEach(function (row, i) {
-      var lv = LEVELS[i];
+      var lv = rows[i].lv;
       var d = 'M' + row[0].x + ' ' + row[0].y + ' L' + row[row.length - 1].x + ' ' + row[row.length - 1].y;
       svg.push('<path class="track" stroke="' + lv.color + '" d="' + d + '"/>');
       if (i < pts.length - 1) {
         var a = row[row.length - 1], b = pts[i + 1][0], out = (i % 2 === 0) ? 1 : -1, ox = a.x + out * R * 0.75;
-        svg.push('<path class="track" stroke="' + LEVELS[i + 1].color + '" d="M' + a.x + ' ' + a.y + ' C' + ox + ' ' + a.y + ' ' + ox + ' ' + b.y + ' ' + b.x + ' ' + b.y + '"/>');
+        svg.push('<path class="track" stroke="' + rows[i + 1].lv.color + '" d="M' + a.x + ' ' + a.y + ' C' + ox + ' ' + a.y + ' ' + ox + ' ' + b.y + ' ' + b.x + ' ' + b.y + '"/>');
       }
       var first = row[0], rtl = i % 2 === 1, c = levelCount(lv);
-      nodes.push('<div class="line-name' + (rtl ? ' rtl' : '') + '" style="top:' + (first.y - 46) + 'px;' + (rtl ? 'right:' + (W - first.x - 10) + 'px' : 'left:' + (first.x - 10) + 'px') + '">' +
+      if (rows[i].first) nodes.push('<div class="line-name' + (rtl ? ' rtl' : '') + '" style="top:' + (first.y - 46) + 'px;' + (rtl ? 'right:' + (W - first.x - 10) + 'px' : 'left:' + (first.x - 10) + 'px') + '">' +
         '<span class="dot" style="background:' + lv.color + '"></span><b>' + esc(lv.title) + '</b><span class="pc">' + c + '/' + lv.stations.length + '</span></div>');
       row.forEach(function (p) {
         var st = p.st, here = cur && cur.id === st.id, w = Math.max(72, Math.min(112, p.step - 8));
@@ -328,7 +338,7 @@
           (here ? '<span class="here-tag">現在地</span>' : '') + '<span class="code">' + st.code + '</span><span class="pin">' + pinInner(st) + '</span><span class="name">' + esc(st.kind === 'exam' ? 'สอบท้ายสาย' : st.title) + '</span></a>');
       });
     });
-    var H = top + (LEVELS.length - 1) * rowH + 60;
+    var H = top + (rows.length - 1) * rowH + 60;
     el.style.height = H + 'px';
     el.innerHTML = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + svg.join('') + '</svg>' + nodes.join('');
   }
@@ -909,5 +919,6 @@
     }
   });
 
-  route();
+  safeRoute();
+  window.__ejReady = true;
 })();
