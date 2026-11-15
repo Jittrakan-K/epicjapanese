@@ -14,6 +14,8 @@
   function shuffle(a) { a = a.slice(); for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; } return a; }
   function pick(a, n) { return shuffle(a).slice(0, n); }
   function uniqBy(a, f) { var seen = {}; return a.filter(function (x) { var k = f(x); if (seen[k]) return false; seen[k] = 1; return true; }); }
+  function lvVars(lv) { return '--c:var(--line-' + lv.id + ');--on:var(--on-' + lv.id + ')'; }
+  function lvChip(lv, text) { return '<span class="chip" style="' + lvVars(lv) + '">' + esc(text == null ? lv.code : text) + '</span>'; }
   function icon(id, cls) { return '<svg class="i ' + (cls || '') + '"><use href="#i-' + id + '"/></svg>'; }
   function fmt(n) { return Number(n).toLocaleString('en-US'); }
   var hasKanji = function (s) { return /[㐀-䶿一-鿿々]/.test(s); };
@@ -89,7 +91,7 @@
       (ls.grammar || []).forEach(function (g) { GRAMMAR.push(Object.assign({ level: lv, lesson: ls }, g)); });
       (ls.kana || []).forEach(function (k) { KANA_ALL.push({ ch: k[0], ro: k[1], lesson: ls }); });
     });
-    add({ id: lv.id + '-read', kind: 'reading', title: 'อ่าน · ' + lv.reading.title, jp: lv.id === 'kana' ? '看板' : '読解' });
+    add({ id: lv.id + '-read', kind: 'reading', title: 'บทอ่าน: ' + lv.reading.title, jp: lv.id === 'kana' ? '看板' : '読解' });
     add({ id: lv.id + '-exam', kind: 'exam', title: 'สอบท้าย' + lv.title, jp: '試験' });
   });
 
@@ -178,9 +180,9 @@
     dc.classList.toggle('due', due > 0);
     var x = xpToday(), g = S.settings.goal;
     $('#sideToday').innerHTML =
-      '<div class="row"><span>วันนี้</span><span class="mono">' + x + ' / ' + g + ' XP</span></div>' +
+      '<div class="row"><span>วันนี้</span><span class="num">' + x + ' / ' + g + ' XP</span></div>' +
       '<div class="bar red"><i style="transform:scaleX(' + Math.min(1, x / g) + ')"></i></div>' +
-      '<div class="row" style="margin-top:8px"><span>ต่อเนื่อง</span><span class="mono">' + streak() + ' วัน</span></div>';
+      '<div class="row" style="margin-top:8px"><span>ต่อเนื่อง</span><span class="num">' + streak() + ' วัน</span></div>';
   }
   function setNav(name) { $$('[data-nav]').forEach(function (a) { a.classList.toggle('on', a.getAttribute('data-nav') === name); }); }
   function openSheet(html) {
@@ -224,7 +226,7 @@
     chrome();
   }
   function showError(err) {
-    view.insertAdjacentHTML('afterbegin', '<div class="card pad" style="margin-bottom:16px;border-color:var(--neg)"><div class="h3">เกิดข้อผิดพลาด</div><p class="soft mono" style="font-size:12px;margin-top:4px">' + esc(err && (err.message || err)) + '</p><p class="soft" style="font-size:13px;margin-top:8px">ลองกด Ctrl+F5 เพื่อโหลดหน้าใหม่ ถ้ายังไม่หายส่งข้อความนี้ให้ผู้ดูแลเว็บ</p></div>');
+    view.insertAdjacentHTML('afterbegin', '<div class="card pad" style="margin-bottom:16px"><div class="h3">เกิดข้อผิดพลาด</div><p class="soft num" style="font-size:12px;margin-top:4px">' + esc(err && (err.message || err)) + '</p><p class="soft" style="font-size:13px;margin-top:8px">ลองกด Ctrl+F5 เพื่อโหลดหน้าใหม่ ถ้ายังไม่หายส่งข้อความนี้ให้ผู้ดูแลเว็บ</p></div>');
   }
   function safeRoute() { try { route(); } catch (err) { console.error(err); showError(err); } }
   window.addEventListener('hashchange', safeRoute);
@@ -243,24 +245,23 @@
     var cur = current(), total = STATIONS.length, dc = doneCount();
     var due = dueIds().length, x = xpToday(), g = S.settings.goal;
     var stamps = LEVELS.map(function (lv) {
-      return levelDone(lv) ? '<span class="hanko" style="width:40px;height:40px" title="จบ' + esc(lv.title) + '">' + esc(lv.code === 'K' ? 'かな' : lv.code) + '</span>'
+      return levelDone(lv) ? '<span class="hanko sm" style="' + lvVars(lv) + '" title="จบ' + esc(lv.title) + '">' + esc(lv.code === 'K' ? 'かな' : lv.code) + '</span>'
         : '<span class="slot">' + esc(lv.code === 'K' ? 'かな' : lv.code) + '</span>';
     }).join('');
-    var where = cur ? ('<b>' + esc(cur.level.title) + '</b> · สถานี ' + cur.code + ' ' + esc(cur.title)) : '<b>ถึงสถานีปลายทาง N1 แล้ว</b>';
+    var where = cur ? ('<b>' + esc(cur.level.title) + '</b> สถานี ' + cur.code + ' ' + esc(cur.title)) : '<b>ถึงสถานีปลายทาง N1 แล้ว</b>';
 
     var html =
       '<div class="page">' +
-        '<div class="eyebrow">ศูนย์ ถึง N1 · ' + LEVELS.length + ' สาย ' + total + ' สถานี</div>' +
         '<h1 class="title">แผนที่การเรียน</h1>' +
-        '<p class="lead">นั่งไปทีละสถานี ผ่านแบบทดสอบท้ายบทได้ 80% ขึ้นไปจะได้ตราประทับ ครบทุกสถานีในสายแล้วค่อยต่อสายถัดไป</p>' +
+        '<p class="lead">จากศูนย์ถึง N1 ใน ' + LEVELS.length + ' สาย ' + total + ' สถานี นั่งไปทีละสถานี ผ่านแบบทดสอบท้ายบทได้ 80% ขึ้นไปจะได้ตราประทับ</p>' +
 
-        '<div class="split" style="margin-top:32px">' +
+        '<div class="split">' +
           '<div class="ticket">' +
-            '<div class="ticket-top"><span class="jp">乗車券</span><span>Epic Japanese</span></div>' +
-            '<div class="ticket-route"><div class="stn">ゼロ<small>เริ่มจากศูนย์</small></div><div class="arrow"></div><div class="stn">N1<small>สถานีปลายทาง</small></div></div>' +
+            '<div class="ticket-top"><span class="jp">乗車券</span><span>ตั๋วเรียน Epic Japanese</span></div>' +
+            '<div class="ticket-route"><div class="stn">ゼロ<small>เริ่มจากศูนย์</small></div><div class="arrow" aria-hidden="true"></div><div class="stn">N1<small>สถานีปลายทาง</small></div></div>' +
             '<div class="ticket-now">ตอนนี้อยู่ ' + where + '</div>' +
             '<div class="ticket-stamps">' + stamps + '</div>' +
-            '<div class="ticket-meta"><span>ผ่านแล้ว ' + dc + ' / ' + total + ' สถานี</span><span>ออกตั๋ว ' + S.created + '</span></div>' +
+            '<div class="ticket-meta"><span>ผ่านแล้ว <b class="num">' + dc + ' / ' + total + '</b> สถานี</span><span>ออกตั๋ว <span class="num">' + S.created + '</span></span></div>' +
           '</div>' +
 
           '<div class="card pad today">' +
@@ -269,28 +270,27 @@
               '<div><div class="stat-label">ต่อเนื่อง</div><div class="big-num">' + streak() + '<small>วัน</small></div></div>' +
               '<div><div class="stat-label">การ์ดถึงกำหนด</div><div class="big-num">' + due + '<small>ใบ</small></div></div>' +
             '</div>' +
-            '<div class="bar red"><i style="transform:scaleX(' + Math.min(1, x / g) + ')"></i></div>' +
-            '<div class="hr" style="margin:0"></div>' +
+            '<div class="bar"><i style="transform:scaleX(' + Math.min(1, x / g) + ')"></i></div>' +
             (cur ?
-              '<div class="next-stop"><span class="line-chip" style="color:' + cur.level.color + '"><span>' + pad2(cur.num) + '</span></span>' +
-              '<div class="txt"><div class="muted" style="font-size:13px">สถานีถัดไป · ' + cur.code + '</div><div class="h3">' + esc(cur.title) + '</div></div>' +
+              '<div class="next-stop"><span class="line-chip" style="' + lvVars(cur.level) + '"><span>' + pad2(cur.num) + '</span></span>' +
+              '<div class="txt"><div class="stat-label">สถานีถัดไป <span class="num">' + cur.code + '</span></div><div class="h3">' + esc(cur.title) + '</div></div>' +
               '<a class="btn primary" href="' + stationHref(cur) + '">เรียนต่อ' + icon('arrow', 'i-sm') + '</a></div>'
-              : '<div class="next-stop"><div class="txt"><div class="h3">ครบทุกสถานีแล้ว</div><div class="muted" style="font-size:13px">ทบทวนการ์ดทุกวันเพื่อรักษาความจำ</div></div></div>') +
+              : '<div class="next-stop"><div class="txt"><div class="h3">ครบทุกสถานีแล้ว</div><div class="stat-label">ทบทวนการ์ดทุกวันเพื่อรักษาความจำ</div></div></div>') +
             (due ? '<a class="btn" href="#/review">' + icon('layers', 'i-sm') + 'ทบทวน ' + due + ' ใบ</a>' : '') +
           '</div>' +
         '</div>' +
 
         '<section class="card mapcard"><div class="map" id="map"></div>' +
-          '<div class="map-legend"><span><i class="lg-pin"></i>ยังไม่ผ่าน</span><span><i class="lg-pin f"></i>ผ่านแล้ว</span><span><i class="lg-pin x"></i>สอบท้ายสาย</span><span><span class="here-tag" style="font:500 11px/1 var(--jp);color:#fff;background:var(--accent);padding:3px 5px;border-radius:4px">現在地</span>อยู่ที่นี่</span></div>' +
+          '<div class="map-legend"><span><i class="lg-pin"></i>ยังไม่ผ่าน</span><span><i class="lg-pin f"></i>ผ่านแล้ว</span><span><i class="lg-pin x"></i>สอบท้ายสาย</span><span><span class="here-tag sample">現在地</span>อยู่ที่นี่</span></div>' +
         '</section>' +
 
         '<section class="section"><div class="section-head"><h2 class="h2">ทุกสาย</h2><span class="muted">ขอบเขตอ้างอิงจากข้อมูลทั่วไปของ JLPT ไม่ใช่รายการทางการ</span></div>' +
           '<div class="card">' + LEVELS.map(function (lv) {
             var c = levelCount(lv), n = lv.stations.length;
             return '<a class="list-row" href="' + stationHref(lv.stations.filter(function (s) { return !isDone(s.id); })[0] || lv.stations[0]) + '">' +
-              '<span class="line-chip" style="color:' + lv.color + '"><span>' + esc(lv.code) + '</span></span>' +
-              '<div class="grow"><div class="h3">' + esc(lv.title) + '</div><div class="muted" style="font-size:13px">' + esc(lv.desc) + '</div><div class="muted" style="font-size:12px;margin-top:2px">' + esc(lv.scope) + '</div></div>' +
-              '<span class="meta">' + c + '/' + n + '</span>' + icon('right', 'muted') + '</a>';
+              '<span class="line-chip" style="' + lvVars(lv) + '"><span>' + esc(lv.code) + '</span></span>' +
+              '<div class="grow"><div class="h3">' + esc(lv.title) + '</div><div class="row-sub">' + esc(lv.desc) + '</div><div class="row-sub">' + esc(lv.scope) + '</div></div>' +
+              '<span class="meta num">' + c + '/' + n + '</span>' + icon('right', 'muted') + '</a>';
           }).join('') + '</div></section>' +
       '</div>';
 
@@ -322,34 +322,40 @@
     pts.forEach(function (row, i) {
       var lv = rows[i].lv;
       var d = 'M' + row[0].x + ' ' + row[0].y + ' L' + row[row.length - 1].x + ' ' + row[row.length - 1].y;
-      svg.push('<path class="track" stroke="' + lv.color + '" d="' + d + '"/>');
+      svg.push('<path class="track-case" d="' + d + '"/><path class="track" style="stroke:var(--line-' + lv.id + ')" d="' + d + '"/>');
       if (i < pts.length - 1) {
         var a = row[row.length - 1], b = pts[i + 1][0], out = (i % 2 === 0) ? 1 : -1, ox = a.x + out * R * 0.75;
-        svg.push('<path class="track" stroke="' + rows[i + 1].lv.color + '" d="M' + a.x + ' ' + a.y + ' C' + ox + ' ' + a.y + ' ' + ox + ' ' + b.y + ' ' + b.x + ' ' + b.y + '"/>');
+        var cd = 'M' + a.x + ' ' + a.y + ' C' + ox + ' ' + a.y + ' ' + ox + ' ' + b.y + ' ' + b.x + ' ' + b.y;
+        svg.unshift('<path class="track-case" d="' + cd + '"/><path class="track" style="stroke:var(--line-' + rows[i + 1].lv.id + ')" d="' + cd + '"/>');
       }
       var first = row[0], rtl = i % 2 === 1, c = levelCount(lv);
       if (rows[i].first) nodes.push('<div class="line-name' + (rtl ? ' rtl' : '') + '" style="top:' + (first.y - 46) + 'px;' + (rtl ? 'right:' + (W - first.x - 10) + 'px' : 'left:' + (first.x - 10) + 'px') + '">' +
-        '<span class="dot" style="background:' + lv.color + '"></span><b>' + esc(lv.title) + '</b><span class="pc">' + c + '/' + lv.stations.length + '</span></div>');
+        lvChip(lv) + '<b>' + esc(lv.title) + '</b><span class="pc num">' + c + '/' + lv.stations.length + '</span></div>');
       row.forEach(function (p) {
         var st = p.st, here = cur && cur.id === st.id, w = Math.max(72, Math.min(112, p.step - 8));
         var edge = Math.abs(p.x - (W - padX)) < 1 ? ' edge-r' : Math.abs(p.x - padX) < 1 ? ' edge-l' : '';
         if (edge) w = Math.min(w, Math.round(p.step - w / 2 + 4));
-        nodes.push('<a class="stop ' + st.kind + edge + (isDone(st.id) ? ' done' : '') + (here ? ' here' : '') + '" href="' + stationHref(st) + '" style="left:' + p.x + 'px;top:' + p.y + 'px;--c:' + lv.color + ';--w:' + w + 'px" aria-label="' + esc(st.code + ' ' + st.title + (isDone(st.id) ? ' ผ่านแล้ว' : '')) + '">' +
-          (here ? '<span class="here-tag">現在地</span>' : '') + '<span class="code">' + st.code + '</span><span class="pin">' + pinInner(st) + '</span><span class="name">' + esc(st.kind === 'exam' ? 'สอบท้ายสาย' : st.title) + '</span></a>');
+        nodes.push('<a class="stop ' + st.kind + edge + (isDone(st.id) ? ' done' : '') + (here ? ' here' : '') + '" href="' + stationHref(st) + '" style="left:' + p.x + 'px;top:' + p.y + 'px;' + lvVars(lv) + ';--w:' + w + 'px" aria-label="' + esc(st.code + ' ' + st.title + (isDone(st.id) ? ' ผ่านแล้ว' : '')) + '">' +
+          (here ? '<span class="here-tag">現在地</span>' + trainHTML(row, p) : '') + '<span class="code num">' + st.code + '</span><span class="pin">' + pinInner(st) + '</span><span class="name">' + esc(st.kind === 'exam' ? 'สอบท้ายสาย' : st.title) + '</span></a>');
       });
     });
     var H = top + (rows.length - 1) * rowH + 60;
     el.style.height = H + 'px';
     el.innerHTML = '<svg width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" aria-hidden="true">' + svg.join('') + '</svg>' + nodes.join('');
   }
+  function trainHTML(row, p) {
+    var j = row.indexOf(p), prev = row[j - 1];
+    var fx = prev ? Math.round(prev.x - p.x) : (row[j + 1] ? Math.round(p.x - row[j + 1].x) : -48);
+    return '<span class="train' + (fx > 0 ? ' rtl' : '') + '" aria-hidden="true" style="--fx:' + fx + 'px"><i></i><i></i><i></i></span>';
+  }
   function vmapHTML(cur) {
     return '<div class="vmap">' + LEVELS.map(function (lv) {
       var n = lv.stations.length;
-      return '<div class="vline-head"><span class="line-chip" style="color:' + lv.color + '"><span>' + esc(lv.code) + '</span></span><div class="t"><b>' + esc(lv.title) + '</b><small>' + levelCount(lv) + '/' + n + ' สถานี</small></div></div>' +
+      return '<div class="vline-head"><span class="line-chip" style="' + lvVars(lv) + '"><span>' + esc(lv.code) + '</span></span><div class="t"><b>' + esc(lv.title) + '</b><small><span class="num">' + levelCount(lv) + '/' + n + '</span> สถานี</small></div></div>' +
         lv.stations.map(function (st, j) {
           var here = cur && cur.id === st.id;
-          return '<a class="vstop ' + st.kind + (isDone(st.id) ? ' done' : '') + (here ? ' here' : '') + (j === 0 ? ' first' : '') + (j === n - 1 ? ' last' : '') + '" href="' + stationHref(st) + '" style="--c:' + lv.color + '">' +
-            '<span class="pin">' + pinInner(st) + '</span><span class="txt"><b>' + esc(st.title) + '</b><small>' + st.code + ' · ' + esc(st.jp) + '</small></span>' + (here ? '<span class="here-tag">現在地</span>' : '') + '</a>';
+          return '<a class="vstop ' + st.kind + (isDone(st.id) ? ' done' : '') + (here ? ' here' : '') + (j === 0 ? ' first' : '') + (j === n - 1 ? ' last' : '') + '" href="' + stationHref(st) + '" style="' + lvVars(lv) + '">' +
+            '<span class="pin">' + pinInner(st) + '</span><span class="txt"><b>' + esc(st.title) + '</b><small><span class="num">' + st.code + '</span><span class="jp">' + esc(st.jp) + '</span></small></span>' + (here ? '<span class="here-tag">現在地</span>' : '') + '</a>';
         }).join('');
     }).join('') + '</div>';
   }
@@ -357,10 +363,10 @@
   /* ================= lesson ================= */
   function stationHead(st, extra) {
     var lv = st.level, d = S.done[st.id];
-    return '<div class="eyebrow"><a href="#/">แผนที่</a>' + icon('right', 'i-sm') + '<span>' + esc(lv.title) + '</span>' + icon('right', 'i-sm') + '<span class="mono">' + st.code + '</span></div>' +
-      '<div class="lesson-head" style="margin-top:16px;--c:' + lv.color + '">' +
+    return '<nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/">แผนที่</a>' + icon('right', 'i-sm') + '<span>' + esc(lv.title) + '</span>' + icon('right', 'i-sm') + '<span class="num">' + st.code + '</span></nav>' +
+      '<div class="lesson-head" style="' + lvVars(lv) + '">' +
         '<span class="badge' + (st.kind === 'exam' ? ' exam' : '') + '">' + pad2(st.num) + '</span>' +
-        '<div class="grow"><h1 class="title" style="margin:0">' + esc(st.title) + '<span class="jp">' + esc(st.jp) + '</span></h1>' + (extra || '') + '</div>' +
+        '<div class="grow"><h1 class="title">' + esc(st.title) + '</h1><p class="title-jp">' + esc(st.jp) + '</p>' + (extra || '') + '</div>' +
         (d ? '<span class="hanko" title="ผ่านเมื่อ ' + thDate(d.at) + '">合格</span>' : '') +
       '</div>';
   }
@@ -379,7 +385,7 @@
     var body = '';
     if (tab === 'intro') {
       body = '<p class="prose">' + esc(ls.intro) + '</p>' +
-        (ls.tips ? '<ul class="tips" style="--c:' + lv.color + '">' + ls.tips.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : '') +
+        (ls.tips ? '<ul class="tips" style="' + lvVars(lv) + '">' + ls.tips.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : '') +
         '<div class="steps">' + tabs.slice(1).map(function (t, i) {
           return '<a href="#/lesson/' + st.id + '/' + t[0] + '"><div class="n">' + (i + 1) + '</div><div class="t">' + t[1] + '</div><div class="s">' +
             (t[0] === 'quiz' ? '10 ข้อ ผ่านที่ 80%' : t[2] + ' รายการ') + '</div></a>';
@@ -398,9 +404,9 @@
     var nx = tabs[tabs.map(function (t) { return t[0]; }).indexOf(tab) + 1];
     var html = '<div class="page page-narrow">' + stationHead(st) +
       '<nav class="tabs">' + tabs.map(function (t) {
-        return '<a href="#/lesson/' + st.id + '/' + t[0] + '" class="' + (t[0] === tab ? 'on' : '') + '">' + t[1] + (t[2] ? ' <span class="mono">' + t[2] + '</span>' : '') + '</a>';
+        return '<a href="#/lesson/' + st.id + '/' + t[0] + '" class="' + (t[0] === tab ? 'on' : '') + '">' + t[1] + (t[2] ? ' <span class="num">' + t[2] + '</span>' : '') + '</a>';
       }).join('') + '</nav>' + body +
-      (nx ? '<div class="row-actions" style="margin-top:32px;justify-content:flex-end"><a class="btn primary" href="#/lesson/' + st.id + '/' + nx[0] + '">ต่อไป · ' + nx[1] + icon('arrow', 'i-sm') + '</a></div>' : '') +
+      (nx ? '<div class="row-actions" style="margin-top:32px;justify-content:flex-end"><a class="btn primary" href="#/lesson/' + st.id + '/' + nx[0] + '">ต่อไป ' + nx[1] + icon('arrow', 'i-sm') + '</a></div>' : '') +
       '</div>';
     return html;
   }
@@ -421,7 +427,7 @@
     var ro = S.settings.romaji;
     var rRow = g.r ? '<div class="r">' + esc(g.r.replace(/\s+/g, ' ')) + '</div>' + (ro ? '<div class="ro">' + esc(romaji(g.r)) + '</div>' : '') : '';
     return '<div class="card gcard">' +
-      (showLevel ? '<div class="muted mono" style="font-size:12px;margin-bottom:4px"><span class="dot" style="background:' + g.level.color + ';margin-right:8px"></span>' + esc(g.level.code) + ' · ' + esc(g.lesson.title) + '</div>' : '') +
+      (showLevel ? '<div class="where">' + lvChip(g.level) + '<span>' + esc(g.lesson.title) + '</span></div>' : '') +
       '<div class="pat">' + esc(g.p) + '</div><div class="mean">' + esc(g.m) + '</div>' +
       '<div class="ex">' + sayBtn(g.ex, 'ฟังประโยค') + '<div class="body"><div class="s">' + esc(g.ex) + '</div>' + rRow + '<div class="th">' + esc(g.th) + '</div></div></div>' +
       (g.note ? '<div class="note">' + esc(g.note) + '</div>' : '') + '</div>';
@@ -433,7 +439,7 @@
   }
   function kanjiSheet(ch) {
     var c = CARD['k:' + ch]; if (!c) return;
-    openSheet('<div class="sheet-head"><span class="muted mono" style="font-size:12px"><span class="dot" style="background:' + c.level.color + ';margin-right:8px"></span>' + esc(c.level.code) + ' · ' + esc(c.lesson.title) + '</span><button class="icon-btn" data-close aria-label="ปิด">' + icon('x') + '</button></div>' +
+    openSheet('<div class="sheet-head"><span class="where">' + lvChip(c.level) + '<span>' + esc(c.lesson.title) + '</span></span><button class="icon-btn" data-close aria-label="ปิด">' + icon('x') + '</button></div>' +
       '<div class="kdetail"><div class="kbox">' + esc(c.k) + '</div><div>' +
         '<div class="h2">' + esc(c.m) + '</div>' +
         '<dl class="dl" style="margin-top:16px"><dt>อง</dt><dd class="jp">' + esc(c.on) + '</dd><dt>คุน</dt><dd class="jp">' + esc(c.kun) + '</dd><dt>ตัวอย่าง</dt><dd><span class="jp" style="font-size:18px">' + furi(c.exw, c.exr) + '</span> <span class="muted">' + esc(c.exm) + '</span></dd></dl>' +
@@ -453,7 +459,7 @@
         (rd.lines[0][2] ? '<label class="toggle"><input type="checkbox" id="rdR" checked>คำอ่าน</label>' : '') + '</div>' +
       '<div class="card pad" id="rdBox">' + rd.lines.map(function (l, i) {
         return '<div class="rline"><span class="n">' + (i + 1) + '</span><div class="body"><div class="s">' + esc(l[0]) + '</div>' +
-          (l[2] ? '<div class="r rd-r">' + esc(l[2]) + (ro ? ' · <span class="mono">' + esc(romaji(l[2])) + '</span>' : '') + '</div>' : '') +
+          (l[2] ? '<div class="r rd-r">' + esc(l[2]) + '</div>' + (ro ? '<div class="ro rd-r">' + esc(romaji(l[2])) + '</div>' : '') : '') +
           '<div class="th rd-th hide">' + esc(l[1]) + '</div></div>' + sayBtn(l[0]) + '</div>';
       }).join('') + '</div>' +
       '<div class="row-actions" style="margin-top:24px;justify-content:flex-end">' +
@@ -513,8 +519,8 @@
   function viewQuiz(st) {
     Q = { st: st, qs: buildQuestions(st), i: 0, right: 0, miss: [], locked: false };
     var html = '<div class="page"><div class="quiz">' +
-      '<div class="eyebrow"><a href="#/">แผนที่</a>' + icon('right', 'i-sm') + '<span>' + esc(st.level.title) + '</span>' + icon('right', 'i-sm') + '<a href="' + (st.kind === 'exam' ? '#/' : '#/lesson/' + st.id) + '" class="mono">' + st.code + '</a></div>' +
-      '<h1 class="title" style="font-size:24px">' + (st.kind === 'exam' ? esc(st.title) : 'แบบทดสอบ · ' + esc(st.title)) + '</h1>' +
+      '<nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/">แผนที่</a>' + icon('right', 'i-sm') + '<span>' + esc(st.level.title) + '</span>' + icon('right', 'i-sm') + '<a href="' + (st.kind === 'exam' ? '#/' : '#/lesson/' + st.id) + '" class="num">' + st.code + '</a></nav>' +
+      '<h1 class="title title-s">' + (st.kind === 'exam' ? esc(st.title) : 'แบบทดสอบ: ' + esc(st.title)) + '</h1>' +
       '<div id="quizBox"></div></div></div>';
     return { html: html, mount: renderQ, destroy: function () { Q = null; } };
   }
@@ -527,7 +533,7 @@
       ? '<div class="qopts" id="qopts">' + q.opts.map(function (o, i) { return '<button class="qopt" data-opt="' + i + '"><span class="key">' + (i + 1) + '</span><span>' + o.html + '</span></button>'; }).join('') + '</div>'
       : '<form class="qtype" id="qtype" autocomplete="off"><input class="input" id="qin" placeholder="เช่น ka" autocapitalize="off" spellcheck="false" aria-label="คำตอบ"><button class="btn primary lg">ตรวจ</button></form>';
     box.innerHTML =
-      '<div class="quiz-top" style="margin-top:20px"><div class="bar"><i style="transform:scaleX(' + (Q.i / n) + ')"></i></div><span class="mono muted" style="font-size:12px">' + (Q.i + 1) + ' / ' + n + '</span></div>' +
+      '<div class="quiz-top" style="margin-top:20px"><div class="bar"><i style="transform:scaleX(' + (Q.i / n) + ')"></i></div><span class="num muted" style="font-size:12px">' + (Q.i + 1) + ' / ' + n + '</span></div>' +
       '<div class="card qcard"><div class="qkind">' + esc(q.kind) + '</div>' +
         '<div class="qprompt ' + (q.pcls === 'th' ? 'th' : q.pcls === 'hand' ? 'hand' : q.pcls === 'sentence' ? 'sentence' : '') + '">' + esc(q.prompt) + '</div>' +
         (q.say && q.pcls !== 'th' ? '<div>' + sayBtn(q.say) + '</div>' : '') +
@@ -546,8 +552,8 @@
     save();
     if (q.say && q.pcls !== 'th' && correct) speak(q.say);
     var last = Q.i === Q.qs.length - 1;
-    $('#qfeed').innerHTML = '<div class="msg ' + (correct ? 'ok' : 'bad') + '"><b>' + (correct ? 'ถูกต้อง' : 'ยังไม่ใช่') + '</b>' + (correct ? '' : ' · คำตอบคือ <span class="jp">' + esc(q.answer) + '</span>') + '</div>' +
-      '<button class="btn primary" id="qnext">' + (last ? 'ดูผล' : 'ข้อต่อไป') + ' <span class="key" style="background:transparent;color:inherit;border-color:rgba(253,251,247,.35)">↵</span></button>';
+    $('#qfeed').innerHTML = '<div class="msg ' + (correct ? 'ok' : 'bad') + '"><b>' + (correct ? 'ถูกต้อง' : 'ยังไม่ใช่') + '</b>' + (correct ? '' : ' คำตอบคือ <span class="jp">' + esc(q.answer) + '</span>') + '</div>' +
+      '<button class="btn primary" id="qnext">' + (last ? 'ดูผล' : 'ข้อต่อไป') + ' <span class="key key-inv">↵</span></button>';
     $('#qnext').focus();
   }
   function renderResult() {
@@ -560,13 +566,13 @@
     }
     var stampText = st.kind === 'exam' ? (st.level.code === 'K' ? 'かな' : st.level.code) : '合格';
     $('#quizBox').innerHTML = '<div class="card result" style="margin-top:24px">' +
-      (pass ? '<span class="hanko lg stamp-in">' + esc(stampText) + '<small>' + st.code + '</small></span>' : '') +
+      (pass ? '<span class="hanko lg stamp-in" style="' + lvVars(st.level) + '">' + esc(stampText) + '<small>' + st.code + '</small></span>' : '') +
       '<div class="score">' + Q.right + '<span class="muted" style="font-size:24px"> / ' + n + '</span></div>' +
       '<p class="lead" style="margin:12px auto 0">' + (pass
         ? (st.kind === 'exam' ? 'ผ่าน' + esc(st.level.title) + 'แล้ว ได้ตราประทับประจำสายบนตั๋ว' : 'ผ่านสถานีนี้แล้ว') + (added ? ' เพิ่มการ์ด ' + added + ' ใบเข้ากองทบทวน' : '')
         : 'ได้ ' + pct + '% ต้องได้ 80% ขึ้นไปจึงจะผ่าน ลองทบทวนข้อที่พลาดแล้วทำใหม่') + '</p>' +
       '<div class="row-actions" style="justify-content:center;margin-top:24px">' +
-        (pass && nx ? '<a class="btn primary" href="' + stationHref(nx) + '">สถานีถัดไป · ' + esc(nx.title) + icon('arrow', 'i-sm') + '</a>' : '') +
+        (pass && nx ? '<a class="btn primary" href="' + stationHref(nx) + '">สถานีถัดไป: ' + esc(nx.title) + icon('arrow', 'i-sm') + '</a>' : '') +
         '<button class="btn" data-retry>' + icon('redo', 'i-sm') + 'ทำอีกครั้ง</button>' +
         (st.kind !== 'exam' ? '<a class="btn ghost" href="#/lesson/' + st.id + '">กลับไปทบทวนบท</a>' : '<a class="btn ghost" href="#/">กลับแผนที่</a>') +
       '</div>' +
@@ -582,7 +588,7 @@
     var ids = shuffle(dueIds()), total = Object.keys(S.srs).length;
     R = { ids: ids, i: 0, flipped: false, done: 0, n: ids.length };
     var html = '<div class="page"><div class="quiz">' +
-      '<div class="eyebrow">ทบทวนแบบเว้นระยะ</div><h1 class="title">ทบทวน</h1>' +
+      '<h1 class="title">ทบทวน</h1>' +
       '<p class="lead">ทุกใบจะกลับมาก่อนที่คุณจะลืม ตอบตามจริงว่าจำได้แค่ไหน ระบบจะเลื่อนรอบถัดไปให้เอง</p>' +
       '<div id="revBox"></div></div></div>';
     return { html: html, mount: function () { renderCard(total); }, destroy: function () { R = null; } };
@@ -592,7 +598,7 @@
     var box = $('#revBox'); if (!box || !R) return;
     if (R.i >= R.ids.length) {
       var t = dayNum(), upcoming = Object.keys(S.srs).map(function (id) { return S.srs[id].due; }).filter(function (d) { return d > t; }).sort(function (a, b) { return a - b; });
-      var nextTxt = upcoming.length ? 'รอบถัดไป ' + thDate(keyOf(upcoming[0])) + ' · ' + upcoming.filter(function (d) { return d === upcoming[0]; }).length + ' ใบ' : '';
+      var nextTxt = upcoming.length ? 'รอบถัดไป ' + thDate(keyOf(upcoming[0])) + ' จำนวน ' + upcoming.filter(function (d) { return d === upcoming[0]; }).length + ' ใบ' : '';
       var cur = current();
       box.innerHTML = '<div class="card empty" style="margin-top:24px">' +
         (R.done ? '<div class="h2">ทบทวนครบ ' + R.done + ' ใบแล้ว</div>' : '<div class="h2">' + ((total || Object.keys(S.srs).length) ? 'ยังไม่มีการ์ดถึงกำหนด' : 'กองทบทวนยังว่างอยู่') + '</div>') +
@@ -602,14 +608,14 @@
     }
     var id = R.ids[R.i], c = CARD[id], s = S.srs[id], f = cardFront(c), ro = S.settings.romaji;
     var back = c.type === 'k'
-      ? '<div class="me">' + esc(c.m) + '</div><div class="rd">' + esc(c.on) + ' · ' + esc(c.kun) + '</div><div class="ex"><span class="jp">' + esc(c.exw) + '（' + esc(c.exr) + '）</span> ' + esc(c.exm) + '</div>'
+      ? '<div class="me">' + esc(c.m) + '</div><div class="rd">' + esc(c.on) + '</div><div class="rd">' + esc(c.kun) + '</div><div class="ex"><span class="jp">' + esc(c.exw) + '（' + esc(c.exr) + '）</span> ' + esc(c.exm) + '</div>'
       : '<div class="rd">' + esc(c.r) + '</div>' + (ro ? '<div class="ro">' + esc(romaji(c.r)) + '</div>' : '') + '<div class="me">' + esc(c.m) + '</div>';
     box.innerHTML =
-      '<div class="quiz-top" style="margin-top:24px"><div class="bar"><i style="transform:scaleX(' + (R.done / Math.max(1, R.n)) + ')"></i></div><span class="mono muted" style="font-size:12px">เหลือ ' + (R.ids.length - R.i) + '</span></div>' +
-      '<div class="card flash" id="flash" role="button" tabindex="0" aria-label="พลิกการ์ด"><div class="front' + (f.length > 3 ? ' long' : '') + '">' + esc(f) + '</div>' +
+      '<div class="quiz-top" style="margin-top:24px"><div class="bar"><i style="transform:scaleX(' + (R.done / Math.max(1, R.n)) + ')"></i></div><span class="num muted" style="font-size:12px">เหลือ ' + (R.ids.length - R.i) + '</span></div>' +
+      '<div class="card flash' + (R.flipped ? ' flipped' : '') + '" id="flash" role="button" tabindex="0" aria-label="พลิกการ์ด"><div class="front' + (f.length > 3 ? ' long' : '') + '">' + esc(f) + '</div>' +
         (R.flipped ? '<div class="back">' + back + '<div style="margin-top:8px">' + sayBtn(c.type === 'k' ? c.exr : c.r) + '</div></div>'
           : '<div class="hint">แตะการ์ดหรือกด <kbd>Space</kbd> เพื่อดูคำตอบ</div>') +
-        '<div class="hint" style="margin-top:16px"><span class="dot" style="background:' + c.level.color + '"></span>' + esc(c.level.code) + ' · ' + esc(c.lesson.title) + '</div>' +
+        '<div class="hint where">' + lvChip(c.level) + '<span>' + esc(c.lesson.title) + '</span></div>' +
       '</div>' +
       (R.flipped ? '<div class="grades">' + [[1, 'ลืม', 'again'], [2, 'ยาก', ''], [3, 'จำได้', ''], [4, 'ง่าย', '']].map(function (g) {
         return '<button class="btn ' + g[2] + '" data-grade="' + g[0] + '">' + g[1] + '<small>' + ivlLabel(s, g[0]) + '</small></button>';
@@ -636,15 +642,15 @@
   function viewKana(set) {
     var K = set === 'kata' ? EJ.kana.kata : EJ.kana.hira;
     var html = '<div class="page">' +
-      '<div class="eyebrow">ตารางอ้างอิง</div><h1 class="title">ตารางคานะ</h1>' +
+      '<h1 class="title">ตารางคานะ</h1>' +
       '<p class="lead">แตะตัวอักษรเพื่อฟังเสียง เรียงตามลำดับ あいうえお แบบที่คนญี่ปุ่นใช้เรียงพจนานุกรม</p>' +
       '<div class="row-actions" style="margin-top:24px"><div class="seg"><button data-go="#/kana/hira" class="' + (set !== 'kata' ? 'on' : '') + '">ひらがな ฮิรางานะ</button><button data-go="#/kana/kata" class="' + (set === 'kata' ? 'on' : '') + '">カタカナ คาตาคานะ</button></div>' +
         '<a class="btn sm" href="#/drill/' + (set === 'kata' ? 'kata' : 'hira') + '">' + icon('play', 'i-sm') + 'ทดสอบด่วน 20 ข้อ</a>' +
         '<a class="btn sm ghost" href="#/write/' + (set === 'kata' ? 'kata' : 'hira') + '">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a></div>' +
-      '<div class="kana-cols" style="margin-top:32px"><div><div class="section-head"><h2 class="h2">เสียงพื้นฐาน</h2><span class="muted mono">46</span></div>' + kanaGrid(K.basic, 5) + '</div>' +
-        '<div><div class="section-head"><h2 class="h2">เสียงขุ่น</h2><span class="muted mono">25</span></div>' + kanaGrid(K.voiced, 5) +
-        '<div class="section-head" style="margin-top:32px"><h2 class="h2">เสียงควบ</h2><span class="muted mono">33</span></div>' + kanaGrid(chunk(K.yoon, 3), 3) +
-        (set === 'kata' ? '<div class="section-head" style="margin-top:32px"><h2 class="h2">เสียงพิเศษสำหรับคำต่างประเทศ</h2><span class="muted mono">' + K.extra.length + '</span></div>' + kanaGrid(chunk(K.extra, 3), 3) : '') +
+      '<div class="kana-cols" style="margin-top:32px"><div><div class="section-head"><h2 class="h2">เสียงพื้นฐาน</h2><span class="muted num">46</span></div>' + kanaGrid(K.basic, 5) + '</div>' +
+        '<div><div class="section-head"><h2 class="h2">เสียงขุ่น</h2><span class="muted num">25</span></div>' + kanaGrid(K.voiced, 5) +
+        '<div class="section-head" style="margin-top:32px"><h2 class="h2">เสียงควบ</h2><span class="muted num">33</span></div>' + kanaGrid(chunk(K.yoon, 3), 3) +
+        (set === 'kata' ? '<div class="section-head" style="margin-top:32px"><h2 class="h2">เสียงพิเศษสำหรับคำต่างประเทศ</h2><span class="muted num">' + K.extra.length + '</span></div>' + kanaGrid(chunk(K.extra, 3), 3) : '') +
       '</div></div></div>';
     return html;
   }
@@ -658,7 +664,7 @@
     });
     Q = { st: fake, qs: qs, i: 0, right: 0, miss: [], locked: false, drill: true };
     return {
-      html: '<div class="page"><div class="quiz"><div class="eyebrow"><a href="#/kana/' + set + '">ตารางคานะ</a></div><h1 class="title" style="font-size:24px">' + esc(fake.title) + '</h1><div id="quizBox"></div></div></div>',
+      html: '<div class="page"><div class="quiz"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/kana/' + set + '">ตารางคานะ</a></nav><h1 class="title title-s">' + esc(fake.title) + '</h1><div id="quizBox"></div></div></div>',
       mount: renderQ, destroy: function () { Q = null; }
     };
   }
@@ -674,18 +680,18 @@
     var counts = {}; KANJI.forEach(function (k) { counts[k.level.id] = (counts[k.level.id] || 0) + 1; });
     var learned = KANJI.filter(function (k) { return S.srs[k.id]; }).length;
     var groups = LEVELS.filter(function (l) { return counts[l.id] && (!lid || l.id === lid); });
-    return '<div class="page"><div class="eyebrow">คลังคันจิ</div><h1 class="title">คันจิ</h1>' +
+    return '<div class="page"><h1 class="title">คันจิ</h1>' +
       '<p class="lead">ชุดเริ่มต้น ' + KANJI.length + ' ตัวที่ผูกกับบทเรียน อยู่ในกองทบทวนแล้ว ' + learned + ' ตัว</p>' +
       '<div style="margin-top:24px">' + levelFilter('kanji', lid, counts) + '</div>' +
       groups.map(function (lv) {
-        return '<section class="section"><div class="section-head"><h2 class="h2"><span class="dot" style="background:' + lv.color + ';margin-right:10px"></span>' + esc(lv.title) + '</h2><span class="muted mono">' + counts[lv.id] + '</span></div>' +
+        return '<section class="section"><div class="section-head"><h2 class="h2 with-chip">' + lvChip(lv) + esc(lv.title) + '</h2><span class="muted num">' + counts[lv.id] + '</span></div>' +
           kanjiTiles(KANJI.filter(function (k) { return k.level === lv; })) + '</section>';
       }).join('') + '</div>';
   }
   function viewGrammar(lid) {
     var counts = {}; GRAMMAR.forEach(function (g) { counts[g.level.id] = (counts[g.level.id] || 0) + 1; });
     var list = GRAMMAR.filter(function (g) { return !lid || g.level.id === lid; });
-    return '<div class="page page-narrow"><div class="eyebrow">คลังไวยากรณ์</div><h1 class="title">ไวยากรณ์</h1>' +
+    return '<div class="page page-narrow"><h1 class="title">ไวยากรณ์</h1>' +
       '<p class="lead">' + GRAMMAR.length + ' รูปประโยคเรียงตามสายและสถานี พร้อมตัวอย่างและคำแปล</p>' +
       '<div class="row-actions" style="margin:24px 0 16px">' + levelFilter('grammar', lid, counts) + '</div>' +
       list.map(function (g) { return grammarCard(g, true); }).join('') + '</div>';
@@ -699,15 +705,15 @@
     var k = KANJI.filter(function (x) { return x.k === q || x.m.indexOf(q) > -1 || x.on.indexOf(EJ.kana.toKata(hq)) > -1 || x.kun.indexOf(hq) > -1; }).slice(0, 24);
     var g = GRAMMAR.filter(function (x) { return x.p.indexOf(q) > -1 || x.m.indexOf(q) > -1 || x.ex.indexOf(q) > -1; }).slice(0, 20);
     if (!v.length && !k.length && !g.length) return '<div class="card empty"><div class="h2">ไม่พบ "' + esc(q) + '"</div><p>ลองคำสั้นลง หรือพิมพ์เป็นคานะ</p></div>';
-    return (v.length ? '<section class="section" style="margin-top:24px"><div class="section-head"><h2 class="h2">คำศัพท์</h2><span class="muted mono">' + v.length + '</span></div><div class="card vlist">' + v.map(function (x) {
-      return '<div class="vrow"><span class="w">' + furi(x.w, x.r) + '</span><span class="ro">' + esc(romaji(x.r)) + '</span><span class="me">' + esc(x.m) + ' <a class="muted mono" style="font-size:11px" href="#/lesson/' + x.lesson.id + '/vocab">' + esc(SID[x.lesson.id].code) + '</a></span>' + sayBtn(x.r) + '</div>';
+    return (v.length ? '<section class="section" style="margin-top:24px"><div class="section-head"><h2 class="h2">คำศัพท์</h2><span class="muted num">' + v.length + '</span></div><div class="card vlist">' + v.map(function (x) {
+      return '<div class="vrow"><span class="w">' + furi(x.w, x.r) + '</span><span class="ro">' + esc(romaji(x.r)) + '</span><span class="me">' + esc(x.m) + ' <a class="muted num" style="font-size:11px" href="#/lesson/' + x.lesson.id + '/vocab">' + esc(SID[x.lesson.id].code) + '</a></span>' + sayBtn(x.r) + '</div>';
     }).join('') + '</div></section>' : '') +
-      (k.length ? '<section class="section"><div class="section-head"><h2 class="h2">คันจิ</h2><span class="muted mono">' + k.length + '</span></div>' + kanjiTiles(k) + '</section>' : '') +
-      (g.length ? '<section class="section"><div class="section-head"><h2 class="h2">ไวยากรณ์</h2><span class="muted mono">' + g.length + '</span></div>' + g.map(function (x) { return grammarCard(x, true); }).join('') + '</section>' : '');
+      (k.length ? '<section class="section"><div class="section-head"><h2 class="h2">คันจิ</h2><span class="muted num">' + k.length + '</span></div>' + kanjiTiles(k) + '</section>' : '') +
+      (g.length ? '<section class="section"><div class="section-head"><h2 class="h2">ไวยากรณ์</h2><span class="muted num">' + g.length + '</span></div>' + g.map(function (x) { return grammarCard(x, true); }).join('') + '</section>' : '');
   }
   function viewSearch(q) {
     return {
-      html: '<div class="page page-narrow"><div class="eyebrow">ค้นหา</div><h1 class="title">ค้นหาในบทเรียน</h1>' +
+      html: '<div class="page page-narrow"><h1 class="title">ค้นหาในบทเรียน</h1>' +
         '<input class="input" id="pageSearch" type="search" placeholder="คำไทย ญี่ปุ่น หรือโรมาจิ" value="' + esc(q) + '" style="width:100%;margin-top:20px;height:48px;font-size:16px" autocomplete="off">' +
         '<div id="searchOut" style="margin-top:16px">' + searchResults(q) + '</div></div>',
       mount: function () {
@@ -728,7 +734,7 @@
   }
   function viewWrite(set, ch) {
     var list = writeSet(set), idx = Math.max(0, list.map(function (x) { return x.ch; }).indexOf(ch)), item = list[idx];
-    var html = '<div class="page"><div class="eyebrow">กระดาษเก็นโคโยชิ</div><h1 class="title">ฝึกเขียน</h1>' +
+    var html = '<div class="page"><h1 class="title">ฝึกเขียน</h1>' +
       '<p class="lead">เขียนทับตัวแบบจาง ๆ ด้วยนิ้วหรือเมาส์ ตัวแบบใช้ฟอนต์ลายมือแบบหนังสือเรียน ดูรูปทรงและสัดส่วนของเส้นได้ชัด</p>' +
       '<div class="row-actions" style="margin:24px 0"><div class="seg">' + [['hira', 'ひらがな'], ['kata', 'カタカナ'], ['kanji', 'คันจิ']].map(function (s) {
         return '<button data-go="#/write/' + s[0] + '" class="' + (set === s[0] ? 'on' : '') + '">' + s[1] + '</button>';
@@ -738,7 +744,7 @@
           '<div class="row-actions"><button class="btn sm" id="wClear">' + icon('eraser', 'i-sm') + 'ล้าง</button><button class="btn sm ghost" id="wGuide">' + icon('eye', 'i-sm') + 'ซ่อนตัวแบบ</button></div>' +
           '<div class="row-actions"><button class="icon-btn" id="wPrev" aria-label="ตัวก่อนหน้า">' + icon('left') + '</button><button class="btn sm primary" id="wNext">เขียนแล้ว ตัวถัดไป</button></div></div></div>' +
         '<div class="write-info"><div class="card pad"><div class="row-actions" style="justify-content:space-between"><div><div class="ch">' + esc(item.ch) + '</div><div class="soft">' + esc(item.sub) + '</div></div>' + sayBtn(item.say) + '</div>' +
-          '<div class="muted mono" style="font-size:12px;margin-top:16px">' + (idx + 1) + ' / ' + list.length + (set === 'kanji' && !KANJI.some(function (k) { return S.srs[k.id]; }) ? ' · ยังไม่มีคันจิในกองทบทวน จึงแสดงชุด N5' : '') + '</div>' +
+          '<div class="muted num" style="font-size:12px;margin-top:16px">' + (idx + 1) + ' / ' + list.length + (set === 'kanji' && !KANJI.some(function (k) { return S.srs[k.id]; }) ? '<br>ยังไม่มีคันจิในกองทบทวน จึงแสดงชุด N5' : '') + '</div>' +
           '<div class="chip-row">' + list.map(function (x, i) { return '<button data-go="#/write/' + set + '/' + encodeURIComponent(x.ch) + '" class="' + (i === idx ? 'on' : '') + '" aria-label="' + esc(x.ch) + '">' + esc(x.ch) + '</button>'; }).join('') + '</div>' +
         '</div><p class="muted" style="font-size:13px;margin-top:12px">เขียนไปแล้วทั้งหมด ' + fmt(S.stats.written) + ' ตัว</p></div></div></div>';
 
@@ -780,13 +786,13 @@
       months.push('<span>' + (lab ? TH_MONTH[+mk[1] - 1] : '') + '</span>');
       for (var d = 0; d < 7; d++) {
         var dn = d0 + d, k = keyOf(dn), x = S.days[k] || 0;
-        var op = x <= 0 ? 0 : x >= g ? 1 : x >= g * .5 ? .7 : x >= g * .25 ? .45 : .25;
-        cells += dn > t ? '<span class="c" style="visibility:hidden"></span>' : '<span class="c" title="' + thDate(k) + ' · ' + x + ' XP" style="' + (op ? 'background:rgba(184,57,28,' + op + ')' : '') + '"></span>';
+        var lvl = x <= 0 ? 0 : x >= g ? 4 : x >= g * .5 ? 3 : x >= g * .25 ? 2 : 1;
+        cells += dn > t ? '<span class="c future"></span>' : '<span class="c h' + lvl + '" title="' + thDate(k) + ': ' + x + ' XP"></span>';
       }
       cols.push('<div class="col">' + cells + '</div>');
     }
     var acc = S.stats.answered ? Math.round(S.stats.correct / S.stats.answered * 100) : 0;
-    var html = '<div class="page"><div class="eyebrow">ความคืบหน้า</div><h1 class="title">สถิติ</h1>' +
+    var html = '<div class="page"><h1 class="title">สถิติ</h1>' +
       '<div class="stats4" style="margin-top:32px">' +
         '<div class="card stat"><div class="stat-label">สถานีที่ผ่าน</div><div class="v">' + doneCount() + '<small> / ' + STATIONS.length + '</small></div><div class="d">' + Math.round(doneCount() / STATIONS.length * 100) + '% ของเส้นทาง</div></div>' +
         '<div class="card stat"><div class="stat-label">การ์ดในกองทบทวน</div><div class="v">' + fmt(Object.keys(S.srs).length) + '</div><div class="d">ถึงกำหนดวันนี้ ' + dueIds().length + ' ใบ</div></div>' +
@@ -795,10 +801,10 @@
       '</div>' +
       '<div class="card pad" style="margin-top:16px"><div class="section-head"><h2 class="h2">12 เดือนที่ผ่านมา</h2><span class="muted">สีเข้มเมื่อถึงเป้า ' + g + ' XP</span></div>' +
         '<div style="overflow-x:auto"><div class="heat-months">' + months.join('') + '</div><div class="heat">' + cols.join('') + '</div></div>' +
-        '<div class="heat-legend">น้อย<span class="c" style="background:var(--raised)"></span><span class="c" style="background:rgba(184,57,28,.25)"></span><span class="c" style="background:rgba(184,57,28,.45)"></span><span class="c" style="background:rgba(184,57,28,.7)"></span><span class="c" style="background:var(--accent)"></span>ถึงเป้า</div></div>' +
+        '<div class="heat-legend">น้อย<span class="c h0"></span><span class="c h1"></span><span class="c h2"></span><span class="c h3"></span><span class="c h4"></span>ถึงเป้า</div></div>' +
       '<div class="card pad" style="margin-top:16px"><div class="section-head"><h2 class="h2">รายสาย</h2></div>' + LEVELS.map(function (lv) {
         var c = levelCount(lv), n = lv.stations.length;
-        return '<div class="lp-row" style="--c:' + lv.color + '"><span>' + esc(lv.title) + '</span><div class="bar"><i style="transform:scaleX(' + (c / n) + ')"></i></div><span class="mono">' + c + ' / ' + n + '</span></div>';
+        return '<div class="lp-row" style="' + lvVars(lv) + '"><span>' + esc(lv.title) + '</span><div class="bar"><i style="transform:scaleX(' + (c / n) + ')"></i></div><span class="num">' + c + ' / ' + n + '</span></div>';
       }).join('') + '</div></div>';
     return html;
   }
@@ -808,17 +814,17 @@
     var st = S.settings;
     var voices = VOICES.length ? '<select class="input" data-set="voice"><option value="">ค่าเริ่มต้นของเครื่อง</option>' + VOICES.map(function (v) { return '<option' + (v.name === st.voice ? ' selected' : '') + '>' + esc(v.name) + '</option>'; }).join('') + '</select>'
       : '<p class="muted" style="font-size:13px">ไม่พบเสียงภาษาญี่ปุ่นในเครื่องนี้ ติดตั้งเสียงภาษาญี่ปุ่นในการตั้งค่าระบบแล้วโหลดหน้าใหม่</p>';
-    return '<div class="page page-narrow"><div class="eyebrow">ของฉัน</div><h1 class="title">ตั้งค่า</h1>' +
+    return '<div class="page page-narrow"><h1 class="title">ตั้งค่า</h1>' +
       '<div class="card pad" style="margin-top:32px;display:flex;flex-direction:column;gap:24px">' +
         '<div class="field"><label>เป้า XP ต่อวัน</label><div class="seg">' + [20, 30, 50, 100].map(function (g) { return '<button data-goal="' + g + '" class="' + (st.goal === g ? 'on' : '') + '">' + g + '</button>'; }).join('') + '</div></div>' +
-        '<div class="field"><label>ความเร็วเสียงอ่าน <span class="mono" id="rateV">' + st.rate.toFixed(2) + '×</span></label><input type="range" min="0.6" max="1.2" step="0.05" value="' + st.rate + '" data-set="rate" style="max-width:320px;accent-color:#1f1b16"></div>' +
+        '<div class="field"><label>ความเร็วเสียงอ่าน <span class="num" id="rateV">' + st.rate.toFixed(2) + '×</span></label><input type="range" min="0.6" max="1.2" step="0.05" value="' + st.rate + '" data-set="rate" class="range"></div>' +
         '<div class="field"><label>เสียงภาษาญี่ปุ่น</label>' + voices + '<div><button class="btn sm" data-say="こんにちは。にほんごを べんきょうしましょう。">' + icon('sound', 'i-sm') + 'ทดลองฟัง</button></div></div>' +
         '<div class="row-actions" style="gap:24px"><label class="toggle"><input type="checkbox" data-set="romaji"' + (st.romaji ? ' checked' : '') + '>แสดงโรมาจิ</label><label class="toggle"><input type="checkbox" data-set="furigana"' + (st.furigana ? ' checked' : '') + '>แสดงคำอ่านบนคันจิ</label></div>' +
       '</div>' +
       '<div class="card pad" style="margin-top:16px"><div class="h3">สำรองความคืบหน้า</div><p class="soft" style="font-size:14px;margin-top:4px">ข้อมูลทั้งหมดอยู่ในเบราว์เซอร์นี้เท่านั้น ส่งออกเป็นไฟล์ไว้ย้ายเครื่องหรือกันข้อมูลหาย</p>' +
         '<div class="row-actions" style="margin-top:16px"><button class="btn sm" id="exp">' + icon('download', 'i-sm') + 'ส่งออก</button><label class="btn sm">' + icon('upload', 'i-sm') + 'นำเข้า<input type="file" id="imp" accept="application/json" hidden></label>' +
-        '<button class="btn sm ghost" id="reset" style="color:var(--neg)">ล้างความคืบหน้าทั้งหมด</button></div></div>' +
-      '<p class="muted" style="font-size:12px;margin-top:24px">เนื้อหาเป็นชุดเริ่มต้นสำหรับแต่ละระดับ ใช้คู่กับหนังสือเรียนและข้อสอบเก่าจะได้ผลดีที่สุด · ไอคอนจาก Lucide</p></div>';
+        '<button class="btn sm ghost" id="reset">ล้างความคืบหน้าทั้งหมด</button></div></div>' +
+      '<p class="muted" style="font-size:12px;margin-top:24px">เนื้อหาเป็นชุดเริ่มต้นสำหรับแต่ละระดับ ใช้คู่กับหนังสือเรียนและข้อสอบเก่าจะได้ผลดีที่สุด ไอคอนจาก Lucide</p></div>';
   }
   function viewMore() {
     var items = [['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
@@ -831,7 +837,9 @@
   document.addEventListener('click', function (e) {
     var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
-    if (t.hasAttribute('data-say')) { e.preventDefault(); speak(t.getAttribute('data-say')); if (t.id !== 'flash') return; }
+    if (t.hasAttribute('data-say')) {
+      e.preventDefault(); speak(t.getAttribute('data-say'));
+      if (t.classList.contains('ktile')) { t.classList.remove('hop'); void t.offsetWidth; t.classList.add('hop'); } if (t.id !== 'flash') return; }
     if (t.hasAttribute('data-kanji')) return kanjiSheet(t.getAttribute('data-kanji'));
     if (t.hasAttribute('data-close')) return closeSheet();
     if (t.hasAttribute('data-go')) { location.hash = t.getAttribute('data-go'); return; }
