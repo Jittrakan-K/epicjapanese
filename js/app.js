@@ -253,7 +253,7 @@
     var html =
       '<div class="page">' +
         '<h1 class="title">แผนที่การเรียน</h1>' +
-        '<p class="lead">จากศูนย์ถึง N1 ใน ' + LEVELS.length + ' สาย ' + total + ' สถานี นั่งไปทีละสถานี ผ่านแบบทดสอบท้ายบทได้ 80% ขึ้นไปจะได้ตราประทับ</p>' +
+        '<p class="lead">จากศูนย์ถึง N1 ใน ' + LEVELS.length + ' สาย ' + total + ' สถานี สอบท้ายบทผ่าน 80% รับตราประทับ</p>' +
 
         '<div class="split">' +
           '<div class="ticket">' +
