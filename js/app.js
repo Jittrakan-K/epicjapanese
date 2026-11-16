@@ -95,8 +95,83 @@
     add({ id: lv.id + '-exam', kind: 'exam', title: 'สอบท้าย' + lv.title, jp: '試験' });
   });
 
+  /* ================= accounts: โปรไฟล์ในเครื่อง ไม่ใช้อีเมล =================
+     รายชื่อโปรไฟล์อยู่ที่ ACC_KEY ความคืบหน้าของแต่ละคนแยกคีย์กัน
+     PIN เก็บเป็นแฮช SHA-256 ใช้กันคนในเครื่องเดียวกันกดเข้าผิดโปรไฟล์ ไม่ใช่การเข้ารหัสข้อมูล */
+  var ACC_KEY = 'epicjapanese:accounts', GUEST_KEY = 'epicjapanese:v1', GUEST_FLAG = 'epicjapanese:guest';
+  var AVA_N = 4;
+  function accLoad() {
+    try { var a = JSON.parse(localStorage.getItem(ACC_KEY)); if (a && Array.isArray(a.list)) return a; } catch (e) { /* storage unavailable */ }
+    return { list: [], current: null };
+  }
+  var ACC = accLoad();
+  function accSave() { try { localStorage.setItem(ACC_KEY, JSON.stringify(ACC)); } catch (e) { /* ignore */ } }
+  function profile(id) { return ACC.list.filter(function (p) { return p.id === id; })[0] || null; }
+  function me() { return profile(ACC.current); }
+  var guest = false;
+  try { guest = sessionStorage.getItem(GUEST_FLAG) === '1'; } catch (e) { /* ignore */ }
+  function setGuest(on) { guest = on; try { if (on) sessionStorage.setItem(GUEST_FLAG, '1'); else sessionStorage.removeItem(GUEST_FLAG); } catch (e) { /* ignore */ } }
+  function dataKey(id) { return id ? 'epicjapanese:p:' + id : GUEST_KEY; }
+  function newId() { var s = ''; while (s.length < 10) s += Math.random().toString(36).slice(2); return s.slice(0, 10); }
+  function firstGlyph(name) {
+    var g = [];
+    if (window.Intl && Intl.Segmenter) { var it = new Intl.Segmenter('th', { granularity: 'grapheme' }).segment(name); for (var x of it) { g.push(x.segment); if (g.length > 1) break; } }
+    else g = Array.from(name).slice(0, 2);
+    if (!g.length) return '?';
+    return /^[เแโใไ]$/.test(g[0]) && g[1] ? g[0] + g[1] : g[0].toUpperCase();
+  }
+  function ava(p, cls) {
+    var c = p ? (p.color || 0) % AVA_N : 3;
+    return '<span class="ava ava-c' + c + ' ' + (cls || '') + '" aria-hidden="true">' + esc(p ? firstGlyph(p.name) : '?') + '</span>';
+  }
+  function hexOf(buf) { return Array.prototype.map.call(new Uint8Array(buf), function (b) { return (b < 16 ? '0' : '') + b.toString(16); }).join(''); }
+  function hashPin(pin, salt) {
+    var txt = salt + ':' + pin;
+    if (window.crypto && crypto.subtle && window.TextEncoder) return crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt)).then(hexOf);
+    var h = 2166136261; for (var i = 0; i < txt.length; i++) { h ^= txt.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return Promise.resolve('f' + h.toString(16));
+  }
+  function guestHasProgress() {
+    try { var g = JSON.parse(localStorage.getItem(GUEST_KEY)); return !!(g && (Object.keys(g.done || {}).length || Object.keys(g.days || {}).length || Object.keys(g.srs || {}).length)); }
+    catch (e) { return false; }
+  }
+  function useProfile(id) {
+    ACC.current = id; accSave(); setGuest(false);
+    KEY = dataKey(id); S = load(); LG = { mode: null, id: null, err: '' };
+    safeRoute();
+  }
+  function logout() {
+    ACC.current = null; accSave(); setGuest(false);
+    KEY = GUEST_KEY; S = load(); LG = { mode: null, id: null, err: '' };
+    location.hash = '#/'; safeRoute();
+  }
+
+  /* รหัสย้ายเครื่อง: JSON → deflate → base64url ขึ้นต้น EJ1. (EJ0. เมื่อเบราว์เซอร์บีบอัดไม่ได้) */
+  function b64url(u8) { var s = ''; for (var i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+  function unb64url(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
+  function pipeBytes(u8, stream) { return new Response(new Blob([u8]).stream().pipeThrough(stream)).arrayBuffer().then(function (b) { return new Uint8Array(b); }); }
+  function encodeTransfer(obj) {
+    var u8 = new TextEncoder().encode(JSON.stringify(obj));
+    if (window.CompressionStream) return pipeBytes(u8, new CompressionStream('deflate-raw')).then(function (z) { return 'EJ1.' + b64url(z); });
+    return Promise.resolve('EJ0.' + b64url(u8));
+  }
+  function decodeTransfer(str) {
+    try {
+      var m = /^EJ([01])\.([A-Za-z0-9_-]+)$/.exec(String(str).replace(/\s+/g, ''));
+      if (!m) return Promise.reject(new Error('format'));
+      var u8 = unb64url(m[2]);
+      var p = m[1] === '1' ? (window.DecompressionStream ? pipeBytes(u8, new DecompressionStream('deflate-raw')) : Promise.reject(new Error('nodeflate'))) : Promise.resolve(u8);
+      return p.then(function (b) { var o = JSON.parse(new TextDecoder().decode(b)); if (!o || o.t !== 'ej-transfer' || !o.p || !o.d || o.d.v !== 1) throw new Error('payload'); return o; });
+    } catch (e) { return Promise.reject(e); }
+  }
+  function transferPayload() {
+    var p = me();
+    return { t: 'ej-transfer', v: 1, p: { id: p.id, name: p.name, color: p.color, pin: p.pin || null, salt: p.salt, created: p.created }, d: S };
+  }
+
   /* ================= store ================= */
-  var KEY = 'epicjapanese:v1';
+  var KEY = dataKey(me() ? ACC.current : null);
+  var LG = { mode: null, id: null, err: '' };
   function defaults() {
     return { v: 1, created: dayKey(), done: {}, srs: {}, days: {}, stats: { answered: 0, correct: 0, written: 0, reviews: 0 },
       settings: { goal: 30, rate: 0.9, romaji: true, furigana: true, voice: '' } };
@@ -175,6 +250,11 @@
   var toastT;
   function toast(msg) { var t = $('#toast'); t.textContent = msg; t.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function () { t.classList.remove('on'); }, 2200); }
   function chrome() {
+    var p = me();
+    $$('[data-me]').forEach(function (el) {
+      el.innerHTML = ava(p, el.getAttribute('data-me') === 'top' ? 'ava-sm' : 'ava-xs') + (el.getAttribute('data-me') === 'side' ? '<span>' + (p ? esc(p.name) : 'บัญชี') + '</span>' : '');
+      el.setAttribute('aria-label', p ? 'บัญชี ' + p.name : 'บัญชี');
+    });
     var due = dueIds().length, dc = $('#dueCount');
     dc.textContent = due ? due : '';
     dc.classList.toggle('due', due > 0);
@@ -200,7 +280,12 @@
     if (mounted && mounted.destroy) mounted.destroy();
     closeSheet();
     if ('speechSynthesis' in window) speechSynthesis.cancel();
+    var gated = !me() && !guest;
+    document.body.classList.toggle('gated', gated);
+    if (gated) a = '__login';
     switch (a) {
+      case '__login': r = viewLogin(); setNav(''); break;
+      case 'account': r = viewAccount(); setNav('account'); break;
       case '': r = viewMap(); setNav('map'); break;
       case 'lesson': r = SID[parts[1]] ? viewLesson(SID[parts[1]], parts[2] || 'intro') : viewMissing(); setNav('map'); break;
       case 'read': r = SID[parts[1] + '-read'] ? viewReading(SID[parts[1] + '-read']) : viewMissing(); setNav('map'); break;
@@ -818,6 +903,77 @@
     return html;
   }
 
+  /* ================= login / account ================= */
+  function gateLinks(withList) {
+    return '<div class="gate-links">' +
+      (withList ? '<button class="link-btn" data-lg="list">' + icon('left', 'i-sm') + 'กลับไปเลือกโปรไฟล์</button>' : '') +
+      (LG.mode !== 'code' ? '<button class="link-btn" data-lg="code">มีรหัสย้ายเครื่อง</button>' : '') +
+      '<button class="link-btn" id="guestGo">ลองเรียนโดยไม่สร้างบัญชี</button></div>';
+  }
+  function colorPick(sel) {
+    var names = ['ชมพู', 'เขียวมะนาว', 'ดำ', 'ขาว'];
+    return '<div class="ava-pick" role="radiogroup" aria-label="สีโปรไฟล์">' + names.map(function (n, i) {
+      return '<label class="ava-opt"><input type="radio" name="color" value="' + i + '"' + (i === sel ? ' checked' : '') + '><span class="ava ava-c' + i + '" title="' + n + '"></span><span class="sr">' + n + '</span></label>';
+    }).join('') + '</div>';
+  }
+  function viewLogin() {
+    var list = ACC.list, m = LG.mode || (list.length ? 'list' : 'new'), body = '';
+    var err = LG.err ? '<p class="form-err" role="alert">' + esc(LG.err) + '</p>' : '';
+    if (m === 'list') {
+      body = '<h1 class="title">ใครกำลังเรียน</h1><p class="lead">เลือกโปรไฟล์ของคุณในเครื่องนี้</p>' +
+        '<div class="who">' + list.map(function (p) {
+          return '<button class="who-btn" data-login="' + p.id + '">' + ava(p, 'ava-xl') + '<span class="who-name">' + esc(p.name) + '</span><span class="who-meta">' + (p.pin ? 'ใส่ PIN' : 'เข้าได้เลย') + '</span></button>';
+        }).join('') +
+        '<button class="who-btn" data-lg="new"><span class="ava ava-xl ava-add" aria-hidden="true">+</span><span class="who-name">โปรไฟล์ใหม่</span><span class="who-meta">ใช้ชื่อเล่นก็ได้</span></button></div>' + gateLinks(false);
+    } else if (m === 'pin') {
+      var p = profile(LG.id);
+      if (!p) { LG.mode = 'list'; return viewLogin(); }
+      body = '<form class="card pad gate-form" id="lgPin">' +
+        '<div class="gate-who">' + ava(p, 'ava-lg') + '<div><div class="h2">' + esc(p.name) + '</div><div class="muted">ใส่ PIN ของโปรไฟล์นี้</div></div></div>' +
+        '<div class="field"><label for="pinIn">PIN</label><input class="input pin-in" id="pinIn" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required></div>' + err +
+        '<button class="btn primary" type="submit">เข้าสู่ระบบ</button></form>' + gateLinks(true);
+    } else if (m === 'new') {
+      var mig = guestHasProgress();
+      body = '<h1 class="title">' + (list.length ? 'สร้างโปรไฟล์ใหม่' : 'เริ่มจากตั้งชื่อ') + '</h1><p class="lead">ไม่ต้องใช้อีเมล ความคืบหน้าเก็บในเครื่องนี้ ย้ายเครื่องได้ด้วยรหัสย้ายเครื่อง</p>' +
+        '<form class="card pad gate-form" id="lgNew">' +
+          '<div class="field"><label for="nmIn">ชื่อที่ใช้ในเว็บ</label><input class="input" id="nmIn" maxlength="20" autocomplete="nickname" required placeholder="เช่น นุ้ย"></div>' +
+          '<div class="field"><label>สีโปรไฟล์</label>' + colorPick(list.length % AVA_N) + '</div>' +
+          '<div class="field"><label for="pinNew">PIN 4 ถึง 6 หลัก <span class="muted">ไม่ใส่ก็ได้</span></label><input class="input pin-in" id="pinNew" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="new-password"></div>' +
+          (mig ? '<label class="toggle"><input type="checkbox" id="migIn" checked>ย้ายความคืบหน้าที่เรียนไว้แล้วในเครื่องนี้เข้าโปรไฟล์นี้</label>' : '') + err +
+          '<button class="btn primary" type="submit">สร้างโปรไฟล์</button></form>' + gateLinks(list.length > 0);
+    } else if (m === 'code') {
+      body = '<h1 class="title">ย้ายโปรไฟล์มาเครื่องนี้</h1><p class="lead">เปิดหน้าบัญชีในเครื่องเดิม กดสร้างรหัสย้ายเครื่อง แล้ววางรหัสที่นี่</p>' +
+        '<form class="card pad gate-form" id="lgCode">' +
+          '<div class="field"><label for="codeIn">รหัสย้ายเครื่อง</label><textarea class="input code-in" id="codeIn" rows="5" spellcheck="false" autocomplete="off" required placeholder="EJ1.…"></textarea></div>' + err +
+          '<button class="btn primary" type="submit">ย้ายเข้าเครื่องนี้</button></form>' + gateLinks(list.length > 0);
+    }
+    return { html: '<div class="gate"><div class="gate-head"><span class="seal">学</span><span class="brand-name">Epic Japanese</span></div>' + body + '</div>',
+      mount: function () { var f = $('.gate input:not([type=radio]):not([type=checkbox]), .gate textarea'); if (f) f.focus(); } };
+  }
+
+  function viewAccount() {
+    var p = me();
+    if (!p) {
+      return '<div class="page page-narrow"><h1 class="title">บัญชี</h1><div class="card empty" style="margin-top:32px"><div class="h2">ตอนนี้เรียนแบบไม่มีบัญชี</div>' +
+        '<p>ความคืบหน้าเก็บในเบราว์เซอร์นี้ สร้างโปรไฟล์เพื่อแยกคนเรียนและย้ายไปเครื่องอื่นได้ ของที่เรียนไว้ย้ายเข้าโปรไฟล์ได้ตอนสร้าง</p>' +
+        '<div class="row-actions"><button class="btn primary" data-lg-go="new">สร้างโปรไฟล์</button><button class="btn" data-lg-go="list">เข้าโปรไฟล์ที่มีอยู่</button></div></div></div>';
+    }
+    return '<div class="page page-narrow"><h1 class="title">บัญชี</h1>' +
+      '<div class="card pad acc-head" style="margin-top:32px">' + ava(p, 'ava-lg') + '<div class="grow"><div class="h2">' + esc(p.name) + '</div><div class="muted">สร้างเมื่อ ' + thDate(p.created) + (p.pin ? ' มี PIN' : ' ไม่มี PIN') + '</div></div>' +
+        '<button class="btn sm" id="logout">' + icon('swap', 'i-sm') + 'เปลี่ยนโปรไฟล์</button></div>' +
+      '<form class="card pad acc-form" id="accName" style="margin-top:16px"><div class="h3">ชื่อและสี</div>' +
+        '<div class="field"><label for="accNm">ชื่อที่ใช้ในเว็บ</label><input class="input" id="accNm" maxlength="20" required value="' + esc(p.name) + '"></div>' +
+        '<div class="field"><label>สีโปรไฟล์</label>' + colorPick(p.color || 0) + '</div>' +
+        '<div><button class="btn sm" type="submit">บันทึก</button></div></form>' +
+      '<form class="card pad acc-form" id="accPin" style="margin-top:16px"><div class="h3">PIN</div><p class="soft" style="font-size:14px">กันคนอื่นที่ใช้เครื่องเดียวกันกดเข้าโปรไฟล์นี้ ถ้าลืม PIN ต้องย้ายเข้ามาใหม่ด้วยรหัสย้ายเครื่อง</p>' +
+        '<div class="field"><label for="accPinIn">PIN ใหม่ 4 ถึง 6 หลัก</label><input class="input pin-in" id="accPinIn" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="new-password"' + (p.pin ? '' : ' required') + '></div>' +
+        '<div class="row-actions"><button class="btn sm" type="submit">' + (p.pin ? 'เปลี่ยน PIN' : 'ตั้ง PIN') + '</button>' + (p.pin ? '<button class="btn sm ghost" type="button" id="pinOff">เอา PIN ออก</button>' : '') + '</div></form>' +
+      '<div class="card pad" style="margin-top:16px"><div class="h3">รหัสย้ายเครื่อง</div><p class="soft" style="font-size:14px;margin-top:4px">รหัสนี้มีความคืบหน้าทั้งหมดของโปรไฟล์ คัดลอกไปวางที่หน้าเข้าสู่ระบบในเครื่องใหม่ ใครได้รหัสไปก็เปิดโปรไฟล์นี้ได้ อย่าส่งให้คนอื่น</p>' +
+        '<div id="codeBox" style="margin-top:16px"><button class="btn sm" id="mkCode">' + icon('key', 'i-sm') + 'สร้างรหัสย้ายเครื่อง</button></div></div>' +
+      '<div class="card pad" style="margin-top:16px"><div class="h3">ลบโปรไฟล์</div><p class="soft" style="font-size:14px;margin-top:4px">ลบชื่อและความคืบหน้าของโปรไฟล์นี้ออกจากเครื่องนี้ ย้อนกลับไม่ได้ ถ้ามีรหัสย้ายเครื่องเก็บไว้จะกู้คืนได้</p>' +
+        '<div class="row-actions" style="margin-top:16px"><button class="btn sm ghost" id="delMe">ลบโปรไฟล์นี้</button></div></div></div>';
+  }
+
   /* ================= settings ================= */
   function viewSettings() {
     var st = S.settings;
@@ -836,7 +992,7 @@
       '<p class="muted" style="font-size:12px;margin-top:24px">เนื้อหาเป็นชุดเริ่มต้นสำหรับแต่ละระดับ ใช้คู่กับหนังสือเรียนและข้อสอบเก่าจะได้ผลดีที่สุด ไอคอนจาก Lucide</p></div>';
   }
   function viewMore() {
-    var items = [['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
+    var items = [['#/account', 'user', 'บัญชี'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
     return '<div class="page page-narrow"><h1 class="title">เมนู</h1><div class="card" style="margin-top:24px">' + items.map(function (x) {
       return '<a class="list-row" href="' + x[0] + '">' + icon(x[1], 'muted') + '<span class="grow">' + x[2] + '</span>' + icon('right', 'muted') + '</a>';
     }).join('') + '</div></div>';
@@ -844,11 +1000,45 @@
 
   /* ================= events ================= */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset');
+    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#mkCode,#copyCode,#pinOff');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.hasAttribute('data-say')) {
       e.preventDefault(); speak(t.getAttribute('data-say'));
       if (t.classList.contains('ktile')) { t.classList.remove('hop'); void t.offsetWidth; t.classList.add('hop'); } if (t.id !== 'flash') return; }
+    if (t.hasAttribute('data-login')) {
+      var lp = profile(t.getAttribute('data-login'));
+      if (!lp) return;
+      if (!lp.pin) return useProfile(lp.id);
+      LG = { mode: 'pin', id: lp.id, err: '' }; return route();
+    }
+    if (t.hasAttribute('data-lg')) { LG = { mode: t.getAttribute('data-lg'), id: null, err: '' }; return route(); }
+    if (t.hasAttribute('data-lg-go')) { ACC.current = null; accSave(); setGuest(false); LG = { mode: t.getAttribute('data-lg-go'), id: null, err: '' }; KEY = GUEST_KEY; S = load(); return route(); }
+    if (t.id === 'guestGo') { setGuest(true); ACC.current = null; accSave(); KEY = GUEST_KEY; S = load(); toast('เรียนแบบไม่มีบัญชี สร้างโปรไฟล์ทีหลังได้ที่หน้าบัญชี'); return route(); }
+    if (t.id === 'logout') return logout();
+    if (t.id === 'pinOff') { var pp = me(); delete pp.pin; accSave(); toast('เอา PIN ออกแล้ว'); return route(); }
+    if (t.id === 'mkCode') {
+      t.disabled = true;
+      encodeTransfer(transferPayload()).then(function (code) {
+        $('#codeBox').innerHTML = '<textarea class="input code-in" id="codeOut" rows="5" readonly spellcheck="false">' + esc(code) + '</textarea>' +
+          '<div class="row-actions" style="margin-top:12px"><button class="btn sm primary" id="copyCode">' + icon('copy', 'i-sm') + 'คัดลอกรหัส</button><span class="muted num">' + fmt(code.length) + ' ตัวอักษร</span></div>';
+      }).catch(function () { t.disabled = false; toast('สร้างรหัสไม่สำเร็จ'); });
+      return;
+    }
+    if (t.id === 'copyCode') {
+      var ta = $('#codeOut'), ok = function () { toast('คัดลอกรหัสแล้ว'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(ok, function () { ta.select(); document.execCommand('copy'); ok(); });
+      else { ta.select(); document.execCommand('copy'); ok(); }
+      return;
+    }
+    if (t.id === 'delMe') {
+      if (t.dataset.armed) {
+        var dp = me();
+        try { localStorage.removeItem(dataKey(dp.id)); } catch (err) { /* ignore */ }
+        ACC.list = ACC.list.filter(function (x) { return x.id !== dp.id; }); toast('ลบโปรไฟล์ ' + dp.name + ' แล้ว'); return logout();
+      }
+      t.dataset.armed = '1'; t.textContent = 'กดอีกครั้งเพื่อลบถาวร'; setTimeout(function () { if (t.isConnected) { delete t.dataset.armed; t.textContent = 'ลบโปรไฟล์นี้'; } }, 4000);
+      return;
+    }
     if (t.hasAttribute('data-kanji')) return kanjiSheet(t.getAttribute('data-kanji'));
     if (t.hasAttribute('data-close')) return closeSheet();
     if (t.hasAttribute('data-go')) { location.hash = t.getAttribute('data-go'); return; }
@@ -900,6 +1090,59 @@
   document.addEventListener('input', function (e) {
     var t = e.target;
     if (t.type === 'range' && t.getAttribute('data-set') === 'rate') { S.settings.rate = +t.value; $('#rateV').textContent = (+t.value).toFixed(2) + '×'; save(); }
+  });
+  document.addEventListener('submit', function (e) {
+    var f = e.target;
+    if (f.id === 'lgPin') {
+      e.preventDefault();
+      var p = profile(LG.id), pin = $('#pinIn').value.trim();
+      hashPin(pin, p.salt).then(function (h) {
+        if (h === p.pin) return useProfile(p.id);
+        LG.err = 'PIN ไม่ถูกต้อง ลองอีกครั้ง'; route(); var b = $('#lgPin'); if (b) { b.classList.add('shake'); }
+      });
+      return;
+    }
+    if (f.id === 'lgNew') {
+      e.preventDefault();
+      var name = $('#nmIn').value.trim().slice(0, 20), pinN = $('#pinNew').value.trim(), color = +($('input[name=color]:checked', f) || { value: 0 }).value;
+      if (!name) return;
+      if (pinN && !/^[0-9]{4,6}$/.test(pinN)) { LG.err = 'PIN ต้องเป็นตัวเลข 4 ถึง 6 หลัก'; return route(); }
+      var np = { id: newId(), name: name, color: color, salt: newId(), created: dayKey() };
+      var mig = $('#migIn') && $('#migIn').checked;
+      (pinN ? hashPin(pinN, np.salt) : Promise.resolve(null)).then(function (h) {
+        if (h) np.pin = h;
+        try {
+          if (mig) { localStorage.setItem(dataKey(np.id), localStorage.getItem(GUEST_KEY)); localStorage.removeItem(GUEST_KEY); }
+        } catch (err) { /* ignore */ }
+        ACC.list.push(np); accSave(); toast('สร้างโปรไฟล์ ' + name + ' แล้ว'); useProfile(np.id);
+      });
+      return;
+    }
+    if (f.id === 'lgCode') {
+      e.preventDefault();
+      decodeTransfer($('#codeIn').value).then(function (o) {
+        var q = o.p, old = profile(q.id), np = { id: q.id, name: String(q.name || 'ผู้เรียน').slice(0, 20), color: +q.color || 0, salt: q.salt || newId(), created: q.created || dayKey() };
+        if (q.pin) np.pin = q.pin;
+        localStorage.setItem(dataKey(np.id), JSON.stringify(o.d));
+        if (old) ACC.list[ACC.list.indexOf(old)] = np; else ACC.list.push(np);
+        accSave(); toast('ย้ายโปรไฟล์ ' + np.name + ' มาแล้ว'); useProfile(np.id);
+      }).catch(function () { LG.err = 'รหัสไม่ถูกต้องหรือคัดลอกมาไม่ครบ'; var v = $('#codeIn').value; route(); $('#codeIn').value = v; });
+      return;
+    }
+    if (f.id === 'accName') {
+      e.preventDefault();
+      var ap = me(), nm = $('#accNm').value.trim().slice(0, 20);
+      if (!nm) return;
+      ap.name = nm; ap.color = +($('input[name=color]:checked', f) || { value: ap.color }).value; accSave(); toast('บันทึกแล้ว'); return route();
+    }
+    if (f.id === 'accPin') {
+      e.preventDefault();
+      var bp = me(), np2 = $('#accPinIn').value.trim();
+      if (!/^[0-9]{4,6}$/.test(np2)) { toast('PIN ต้องเป็นตัวเลข 4 ถึง 6 หลัก'); return; }
+      if (!bp.salt) bp.salt = newId();
+      hashPin(np2, bp.salt).then(function (h) { bp.pin = h; accSave(); toast('ตั้ง PIN แล้ว'); route(); });
+      return;
+    }
   });
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'qtype' || !Q) return;
