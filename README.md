@@ -65,4 +65,4 @@ assets/mark.svg   ไอคอนเว็บ
 
 ไอคอนจาก [Lucide](https://lucide.dev) (ISC) ฟอนต์ Kanit, Anuphan และ Klee One จาก Google Fonts (OFL)
 
-ดีไซน์ปรับด้วย [Hallmark](https://github.com/Nutlope/hallmark) (MIT) ธีม Werkstatt: พื้นกระดาษสีพุตตี้ เส้นหมึกตีกรอบ และแม่สีสามสีที่แต่ละสีหมายถึงช่วงของการเรียน ดำคือสายคานะ เหลืองคือ N5 และ N4 น้ำเงินคือ N3 แดงคือ N2 และ N1
+ดีไซน์ปรับด้วย [Hallmark](https://github.com/Nutlope/hallmark) (MIT) ธีม Sticker: พื้นกระดาษครีม การ์ดเป็นสติกเกอร์ไดคัทขอบขาวเงาหมึก และสีของแต่ละช่วงการเรียน ดำคือสายคานะ เขียวมะนาวคือ N5 และ N4 ขาวคือ N3 ชมพูคือ N2 และ N1 ตัวอักษร Bowlby One SC, Sofia Sans, Prompt, Anuphan และ Klee One สำหรับภาษาญี่ปุ่น

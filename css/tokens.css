@@ -8,21 +8,23 @@
   --color-error: oklch(52% 0.19 27); --color-success: oklch(50% 0.12 150);
   --container: 1440px; --gutter: 64px; --gap-columns: 32px; --section-gap-s: 120px; --section-gap: 144px; --section-gap-l: 176px;
   --z-base: 1; --z-raised: 10; --z-dropdown: 100; --z-sticky: 200; --z-sticky-nav: 300; --z-modal: 400; --z-toast: 500; --z-tooltip: 600;
-  --color-paper: oklch(84% 0.024 82); --color-paper-2: oklch(79.5% 0.028 80); --color-paper-3: oklch(89.5% 0.018 84);
-  --color-ink: oklch(18% 0.008 60); --color-ink-2: oklch(27% 0.01 60); --color-muted: oklch(39% 0.014 62);
-  --color-rule: oklch(58% 0.022 72);
-  --color-accent: oklch(46% 0.2 264); --color-accent-2: oklch(58% 0.205 33); --color-accent-2-deep: oklch(50% 0.19 31); --color-accent-3: oklch(85% 0.165 92);
-  --color-accent-ink: oklch(96% 0.012 82); --color-focus: oklch(46% 0.2 264);
-  /* Werkstatt's Jost and Karla carry no Thai: Kanit is the geometric display and Anuphan the plain body, both with Thai and Latin; Klee One (a textbook kana and kanji hand) is the outlier for Japanese */
-  --font-display: "Kanit", "Klee One", sans-serif; --font-body: "Anuphan", "Klee One", sans-serif;
+  --color-paper: oklch(95.7% 0.013 82); --color-paper-2: oklch(92.8% 0.021 79); --color-paper-3: oklch(99.4% 0.007 89);
+  --color-ink: oklch(21% 0.011 81); --color-ink-2: oklch(30% 0.013 78); --color-muted: oklch(50% 0.017 64);
+  --color-rule: oklch(89.7% 0.02 80); --color-white: oklch(99.5% 0.003 82);
+  --color-accent: oklch(56% 0.225 2); --color-accent-deep: oklch(49% 0.205 2); --color-accent-2: oklch(87.6% 0.179 119); --color-slot: oklch(95% 0.021 355);
+  --color-accent-ink: oklch(99.5% 0.003 82); --color-focus: oklch(56% 0.225 2);
+  /* Bowlby One SC and Sofia Sans carry no Thai or Japanese: Prompt (800) sets the Thai in the display stack and Anuphan the Thai body, both behind the theme's faces; Klee One, a textbook kana and kanji hand, is the outlier for Japanese */
+  --font-display: "Bowlby One SC", "Prompt", "Klee One", "Arial Black", sans-serif; --font-body: "Sofia Sans", "Anuphan", "Klee One", ui-sans-serif, system-ui, sans-serif;
   --font-outlier: "Klee One", "Anuphan", serif;
-  --radius-card: 0; --radius-pill: 0; --rule-hair: 1px; --rule-bar: 2px; --rule-box: 3px;
-  --shadow-card: none;
-  --tracking-display: -0.005em; --display-weight: 600;
-  /* the primaries code the stage of the journey, the same wherever they appear: ink the scripts, yellow N5 and N4, blue N3, red N2 and N1 */
-  --line-kana: var(--color-ink); --line-n5: var(--color-accent-3); --line-n4: var(--color-accent-3); --line-n3: var(--color-accent); --line-n2: var(--color-accent-2-deep); --line-n1: var(--color-accent-2-deep);
-  --on-kana: var(--color-accent-ink); --on-n5: var(--color-ink); --on-n4: var(--color-ink); --on-n3: var(--color-accent-ink); --on-n2: var(--color-accent-ink); --on-n1: var(--color-accent-ink);
-  --heat-1: var(--color-rule); --heat-2: var(--color-muted); --heat-3: var(--color-ink-2); --heat-4: var(--color-ink);
-  --scrim: oklch(18% 0.008 60 / 0.42);
-  --side-w: 256px; --control: 40px; --control-sm: 32px;
+  --radius-card: 18px; --radius-pill: 999px; --rule-hair: 1px; --rule-bar: 2px;
+  --shadow-card: 5px 6px 0 var(--color-ink); --shadow-press: 1px 1px 0 var(--color-ink);
+  /* Bowlby ships one weight: 800 asks Prompt for its heavy Thai, and font-synthesis keeps Bowlby from a faux bold */
+  --tracking-display: 0.005em; --display-weight: 800;
+  --diecut: 6px; --diecut-s: 4px; --radius-tile: 14px; --shadow-tile: 3px 4px 0 var(--color-ink);
+  /* the fills code the stage of the journey on the map, its chips and its stickers: ink the scripts, lime N5 and N4, white N3, pink N2 and N1 */
+  --line-kana: var(--color-ink); --line-n5: var(--color-accent-2); --line-n4: var(--color-accent-2); --line-n3: var(--color-white); --line-n2: var(--color-accent); --line-n1: var(--color-accent);
+  --on-kana: var(--color-white); --on-n5: var(--color-ink); --on-n4: var(--color-ink); --on-n3: var(--color-ink); --on-n2: var(--color-accent-ink); --on-n1: var(--color-accent-ink);
+  --heat-1: var(--color-accent-2); --heat-2: var(--color-accent); --heat-3: var(--color-ink-2); --heat-4: var(--color-ink);
+  --scrim: oklch(21% 0.011 81 / 0.45);
+  --side-w: 256px; --control: 40px; --control-sm: 32px; --topbar-h: 60px; --tabbar-h: 64px;
 }

@@ -297,8 +297,17 @@
     var onR;
     return {
       html: html,
-      mount: function () { drawMap(); var t; onR = function () { clearTimeout(t); t = setTimeout(drawMap, 120); }; window.addEventListener('resize', onR); },
-      destroy: function () { window.removeEventListener('resize', onR); }
+      mount: function () {
+        var el = $('#map'), lastW = -1;
+        drawMap(); lastW = el.clientWidth;
+        if ('ResizeObserver' in window) {
+          onR = new ResizeObserver(function () { var w = el.clientWidth; if (w !== lastW) { lastW = w; drawMap(); } });
+          onR.observe(el);
+        } else {
+          onR = function () { drawMap(); }; window.addEventListener('resize', onR);
+        }
+      },
+      destroy: function () { if (onR && onR.disconnect) onR.disconnect(); else window.removeEventListener('resize', onR); }
     };
   }
 
