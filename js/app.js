@@ -1251,7 +1251,15 @@
   });
   function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
   function colorOf(f, dflt) { var c = $('input[name=color]:checked', f); return c ? +c.value : dflt; }
-  function onNet(f) { return function (err) { console.error(err); formErr(f, 'network'); }; }
+  function onNet(f) {
+    return function (err) {
+      console.error(err);
+      var m = String(err && err.message || err), code = (/"code"\s*:\s*"([^"]+)"/.exec(m) || [])[1];
+      var why = /Failed to fetch|NetworkError|Load failed/i.test(m) ? 'network' : (code === 'PGRST202' ? 'ยังไม่ได้ติดตั้งฐานข้อมูล (ต้องรันไฟล์ supabase/schema.sql ใน SQL Editor)' : null);
+      formErr(f, why || 'network');
+      if (why !== 'network') { var e = $('.form-err', f); e.textContent += ' · รายละเอียด: ' + m.slice(0, 180); }
+    };
+  }
   document.addEventListener('submit', function (e) {
     var f = e.target;
     var ids = ['lgPin', 'lgLogin', 'lgSignup', 'lgRecover', 'accRelogin', 'accUpgrade', 'accName', 'accPin', 'accPass', 'accDelete'];
