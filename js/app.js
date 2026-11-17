@@ -370,6 +370,14 @@
       if (p.dirty) return push();
     }).catch(function () { setSync(navigator.onLine === false ? 'offline' : 'error'); });
   }
+  /* ส่งข้อมูลที่ยังไม่ซิงก์ของบัญชีใดก็ได้ในเครื่องขึ้นก่อนเอาบัญชีออก (ชนกันก็รวมแล้วส่งอีกครั้ง) */
+  function syncProfileNow(p) {
+    if (!isCloud(p) || !p.token || !p.dirty) return Promise.resolve();
+    var d; try { d = normData(JSON.parse(localStorage.getItem(dataKey(p.id)))); } catch (e) { return Promise.resolve(); }
+    return rpc('ej_save', { p_token: p.token, p_data: d, p_base: p.base || null }).then(function (r) {
+      if (r.error === 'conflict') return rpc('ej_save', { p_token: p.token, p_data: mergeData(d, r.data), p_base: r.updated_at });
+    });
+  }
   function flush() {
     var p = me();
     if (!isCloud(p) || !p.token || !p.dirty || pushing) return;
@@ -1168,9 +1176,13 @@
       body = '<h1 class="title">ใครกำลังเรียน</h1><p class="lead">บัญชีที่เคยเข้าในเครื่องนี้</p>' +
         '<div class="who">' + list.map(function (p) {
           var meta = isCloud(p) ? (p.token ? (p.pin ? 'ใส่ PIN' : 'เข้าได้เลย') : 'ใส่รหัสผ่าน') : 'ในเครื่องเท่านั้น';
-          return '<button class="who-btn" data-login="' + esc(p.id) + '">' + ava(p, 'ava-xl') + '<span class="who-name">' + esc(p.name) + '</span><span class="who-meta">' + meta + '</span></button>';
+          var armed = LG.edit && LG.arm === p.id;
+          if (armed) meta = isCloud(p) ? 'กด × อีกครั้งเพื่อเอาออก ข้อมูลยังอยู่ในบัญชี' : 'ไม่มีบัญชีออนไลน์ ข้อมูลจะหายถาวร กด × อีกครั้ง';
+          return '<div class="who-item' + (armed ? ' armed' : '') + '"><button class="who-btn" data-login="' + esc(p.id) + '"' + (LG.edit ? ' disabled' : '') + '>' + ava(p, 'ava-xl') + '<span class="who-name">' + esc(p.name) + '</span><span class="who-meta">' + meta + '</span></button>' +
+            (LG.edit ? '<button class="who-x" data-forget="' + esc(p.id) + '" aria-label="เอา ' + esc(p.name) + ' ออกจากเครื่องนี้">' + icon('x', 'i-sm') + '</button>' : '') + '</div>';
         }).join('') +
-        '<button class="who-btn" data-lg="login"><span class="ava ava-xl ava-add" aria-hidden="true">+</span><span class="who-name">บัญชีอื่น</span><span class="who-meta">เข้าสู่ระบบหรือสมัคร</span></button></div>' + gateLinks(m);
+        (LG.edit ? '' : '<div class="who-item"><button class="who-btn" data-lg="login"><span class="ava ava-xl ava-add" aria-hidden="true">+</span><span class="who-name">บัญชีอื่น</span><span class="who-meta">เข้าสู่ระบบหรือสมัคร</span></button></div>') + '</div>' +
+        '<div class="gate-links"><button class="link-btn" data-lg-edit>' + (LG.edit ? 'เสร็จแล้ว' : 'เอาบัญชีออกจากเครื่องนี้') + '</button></div>' + (LG.edit ? '' : gateLinks(m));
     } else if (m === 'pin') {
       var p = profile(LG.id);
       if (!p) { LG.mode = 'list'; return viewLogin(); }
@@ -1265,7 +1277,7 @@
 
   /* ================= events ================= */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy]');
+    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy],[data-forget],[data-lg-edit]');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.hasAttribute('data-say')) {
       e.preventDefault(); speak(t.getAttribute('data-say'));
@@ -1276,6 +1288,21 @@
       if (isCloud(lp) && !lp.token) { LG = { mode: 'login', user: lp.user }; return route(); }
       if (!lp.pin) return useProfile(lp.id);
       LG = { mode: 'pin', id: lp.id }; return route();
+    }
+    if (t.hasAttribute('data-lg-edit')) { LG = { mode: 'list', edit: !LG.edit }; return route(); }
+    if (t.hasAttribute('data-forget')) {
+      var fp = profile(t.getAttribute('data-forget'));
+      if (!fp) return;
+      if (LG.arm !== fp.id) { LG.arm = fp.id; return route(); }
+      t.disabled = true;
+      var finish = function () {
+        if (fp.token) rpc('ej_logout', { p_token: fp.token }).catch(function () { /* ignore */ });
+        forget(fp); toast('เอา ' + fp.name + ' ออกจากเครื่องนี้แล้ว');
+        LG = ACC.list.length ? { mode: 'list', edit: true } : { mode: null };
+        route();
+      };
+      syncProfileNow(fp).then(finish, finish);
+      return;
     }
     if (t.hasAttribute('data-lg')) { LG = { mode: t.getAttribute('data-lg') }; return route(); }
     if (t.hasAttribute('data-lg-go')) { LG = { mode: t.getAttribute('data-lg-go') }; return signOutView(); }

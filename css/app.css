@@ -678,8 +678,26 @@ body.gated .main { padding-bottom: var(--space-2xl); }
 .who { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: var(--space-lg) var(--space-md); margin-top: var(--space-md); }
 .who-btn { display: flex; flex-direction: column; align-items: center; gap: var(--space-xs); padding: var(--space-md) var(--space-xs); border-radius: var(--radius-card); transition: background-color var(--dur-micro) var(--ease-out); }
 .who-btn .ava { transition: transform var(--dur-short) var(--ease-out); }
-.who-btn:nth-child(odd) .ava { rotate: -4deg; }
-.who-btn:nth-child(even) .ava { rotate: 3deg; }
+.who-item { position: relative; display: flex; flex-direction: column; }
+.who-item > .who-btn { flex: 1; }
+.who-item:nth-child(odd) .ava { rotate: -4deg; }
+.who-item:nth-child(even) .ava { rotate: 3deg; }
+.who-btn:disabled { cursor: default; }
+.who-btn:disabled:hover { background: none; }
+.who-btn:disabled:hover .ava { transform: none; }
+.who-item.armed .who-meta { color: var(--color-error); font-weight: 700; text-align: center; }
+.who-x {
+  position: absolute; top: var(--space-xs); left: calc(50% + 28px);
+  display: grid; place-items: center; width: 36px; height: 36px; border-radius: var(--radius-pill);
+  background: var(--color-white); color: var(--color-ink); border: var(--rule-bar) solid var(--color-ink); box-shadow: var(--shadow-tile);
+  transition: transform var(--dur-micro) var(--ease-out), background-color var(--dur-micro) var(--ease-out);
+  animation: slap 260ms var(--ease-out);
+}
+.who-x:hover { transform: rotate(-8deg) scale(1.06); }
+.who-x:active { transform: translateY(1px); }
+.who-x:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.who-item.armed .who-x { background: var(--color-accent); color: var(--color-accent-ink); }
+.who-item.armed .ava { opacity: 0.55; }
 .who-btn:hover { background: var(--color-paper-2); }
 .who-btn:hover .ava { transform: translateY(-4px); }
 .who-btn:active .ava { transform: translateY(1px); }
@@ -700,7 +718,7 @@ body.gated .main { padding-bottom: var(--space-2xl); }
 .shake { animation: nudge 360ms var(--ease-out); }
 .acc-head { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; }
 .acc-form { display: flex; flex-direction: column; gap: var(--space-md); }
-@media (prefers-reduced-motion: reduce) { .shake { animation: none; } .who-btn:hover .ava { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .shake, .who-x { animation: none; } .who-btn:hover .ava { transform: none; } }
 .acc-head .grow { flex: 1; min-width: 0; }
 .code-in { width: 100%; }
 .hint { margin-top: calc(var(--space-xs) * -1); font-size: var(--text-xs); color: var(--color-muted); }
