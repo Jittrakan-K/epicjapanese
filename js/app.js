@@ -96,10 +96,9 @@
   });
 
   /* ================= accounts =================
-     บัญชีออนไลน์: ชื่อผู้ใช้ + รหัสผ่าน ไม่ใช้อีเมล เก็บที่ Supabase ผ่านฟังก์ชัน ej_* (ดู supabase/schema.sql)
+     บัญชีออนไลน์: ชื่อผู้ใช้ + รหัสผ่าน ไม่ใช้อีเมล เก็บที่ Firebase (Auth + Firestore) ผ่าน REST
      เครื่องที่เคยเข้าแล้วจำบัญชีไว้ในรายการ ACC พร้อมโทเค็น ความคืบหน้าเก็บในเครื่องก่อนแล้วซิงก์ตามไป
      PIN เป็นแฮชในเครื่อง ใช้ล็อกตอนสลับบัญชีบนเครื่องเดียวกัน ส่วนรหัสผ่านใช้ตอนเข้าเครื่องใหม่ */
-  var CLOUD = window.EJ_CLOUD || null;
   var ACC_KEY = 'epicjapanese:accounts', GUEST_KEY = 'epicjapanese:v1', GUEST_FLAG = 'epicjapanese:guest';
   var AVA_N = 4;
   function accLoad() {
@@ -168,16 +167,133 @@
     mismatch: 'รหัสผ่านสองช่องไม่ตรงกัน',
     network: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'
   };
-  function rpc(fn, args, keepalive) {
-    if (!CLOUD) return Promise.reject(new Error('no_cloud'));
-    return fetch(CLOUD.url + '/rest/v1/rpc/' + fn, {
-      method: 'POST', keepalive: !!keepalive,
-      headers: { apikey: CLOUD.key, 'Content-Type': 'application/json' },
-      body: JSON.stringify(args)
-    }).then(function (r) {
-      if (!r.ok) return r.text().then(function (t) { throw new Error('http ' + r.status + ' ' + t.slice(0, 160)); });
-      return r.json();
+  /* ---------- Firebase (REST, no SDK) ----------
+     ชื่อผู้ใช้ถูกแปลงเป็นที่อยู่ภายใน <ชื่อ>@users.epicjapanese.local ให้ Firebase Auth ไม่มีการส่งอีเมลใดๆ
+     ความคืบหน้าเก็บที่ Firestore progress/{uid} เป็นสตริง JSON ช่องเดียว กฎใน firestore.rules ให้อ่าน/เขียนได้เฉพาะเจ้าของ */
+  var FB = window.EJ_FIREBASE || null;
+  var USER_DOMAIN = '@users.epicjapanese.local';
+  var IDC = {};
+  var FB_ERR = { EMAIL_EXISTS: 'taken', INVALID_LOGIN_CREDENTIALS: 'bad_login', INVALID_PASSWORD: 'bad_login', EMAIL_NOT_FOUND: 'bad_login',
+    WEAK_PASSWORD: 'short_password', TOO_MANY_ATTEMPTS_TRY_LATER: 'locked', INVALID_EMAIL: 'bad_username', MISSING_PASSWORD: 'short_password',
+    TOKEN_EXPIRED: 'bad_session', INVALID_REFRESH_TOKEN: 'bad_session', USER_NOT_FOUND: 'bad_session', USER_DISABLED: 'bad_session',
+    INVALID_ID_TOKEN: 'bad_session', CREDENTIAL_TOO_OLD_LOGIN_AGAIN: 'bad_login' };
+  function fbPost(url, body, form) {
+    return fetch(url, { method: 'POST', headers: { 'Content-Type': form ? 'application/x-www-form-urlencoded' : 'application/json' }, body: form ? body : JSON.stringify(body) })
+      .then(function (r) {
+        return r.json().then(function (j) {
+          if (r.ok) return j;
+          var m = String(j && j.error && j.error.message || '').split(/[ :]/)[0];
+          if (FB_ERR[m]) return { __err: FB_ERR[m] };
+          throw new Error('http ' + r.status + ' ' + JSON.stringify(j).slice(0, 180));
+        });
+      });
+  }
+  function authCall(op, body) { return fbPost('https://identitytoolkit.googleapis.com/v1/accounts:' + op + '?key=' + FB.apiKey, body); }
+  function keepId(uid, tok, exp) { IDC[uid] = { tok: tok, exp: Date.now() + (+exp || 3600) * 1000 - 60000 }; }
+  function idToken(sess) {
+    var c = IDC[sess.uid];
+    if (c && c.exp > Date.now()) return Promise.resolve(c.tok);
+    return fbPost('https://securetoken.googleapis.com/v1/token?key=' + FB.apiKey, 'grant_type=refresh_token&refresh_token=' + encodeURIComponent(sess.rt), true)
+      .then(function (j) {
+        if (j.__err) return null;
+        sess.rt = j.refresh_token; accSave(); keepId(sess.uid, j.id_token, j.expires_in);
+        return j.id_token;
+      });
+  }
+  function docUrl(uid) { return 'https://firestore.googleapis.com/v1/projects/' + FB.projectId + '/databases/(default)/documents/progress/' + uid; }
+  function fsFail(r) { return r.text().then(function (x) { throw new Error('http ' + r.status + ' ' + x.slice(0, 180)); }); }
+  function fsGet(sess) {
+    return idToken(sess).then(function (t) {
+      if (!t) return { error: 'bad_session' };
+      return fetch(docUrl(sess.uid), { headers: { Authorization: 'Bearer ' + t } }).then(function (r) {
+        if (r.status === 404) return { data: {}, updated_at: null };
+        if (r.status === 401) return { error: 'bad_session' };
+        if (!r.ok) return fsFail(r);
+        return r.json().then(function (d) {
+          var s = d.fields && d.fields.json && d.fields.json.stringValue, data = {};
+          try { data = JSON.parse(s || '{}'); } catch (e) { /* keep empty */ }
+          return { data: data, updated_at: d.updateTime };
+        });
+      });
     });
+  }
+  function fsPut(sess, data, base, keepalive) {
+    return idToken(sess).then(function (t) {
+      if (!t) return { error: 'bad_session' };
+      var q = '?updateMask.fieldPaths=json&updateMask.fieldPaths=at&' + (base ? 'currentDocument.updateTime=' + encodeURIComponent(base) : 'currentDocument.exists=false');
+      return fetch(docUrl(sess.uid) + q, {
+        method: 'PATCH', keepalive: !!keepalive,
+        headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fields: { json: { stringValue: JSON.stringify(data) }, at: { timestampValue: new Date().toISOString() } } })
+      }).then(function (r) {
+        if (r.ok) return r.json().then(function (d) { return { updated_at: d.updateTime }; });
+        if (r.status === 401) return { error: 'bad_session' };
+        if (r.status === 400 || r.status === 404 || r.status === 409) {
+          return r.text().then(function (x) {
+            if (!/FAILED_PRECONDITION|ALREADY_EXISTS|NOT_FOUND/.test(x)) throw new Error('http ' + r.status + ' ' + x.slice(0, 180));
+            return fsGet(sess).then(function (g) { return g.error ? g : { error: 'conflict', data: g.data, updated_at: g.updated_at }; });
+          });
+        }
+        return fsFail(r);
+      });
+    });
+  }
+  function normUser(u) { return String(u || '').trim().toLowerCase(); }
+  function reauth(user, pass) {
+    return authCall('signInWithPassword', { email: user + USER_DOMAIN, password: pass || '', returnSecureToken: true });
+  }
+  /* คืนค่ารูปแบบเดียวกับ ej_* เดิม: {error} หรือ {username, token, data, updated_at} โดย token คือ {uid, rt} */
+  function rpc(fn, a, keepalive) {
+    if (!FB) return Promise.reject(new Error('no_cloud'));
+    var u, R = function (o) { return Promise.resolve(o); };
+    if (fn === 'ej_signup') {
+      u = normUser(a.p_username);
+      if (!/^[a-z0-9_]{3,20}$/.test(u)) return R({ error: 'bad_username' });
+      if (String(a.p_password || '').length < 6) return R({ error: 'short_password' });
+      return authCall('signUp', { email: u + USER_DOMAIN, password: a.p_password, returnSecureToken: true }).then(function (j) {
+        if (j.__err) return { error: j.__err };
+        keepId(j.localId, j.idToken, j.expiresIn);
+        var sess = { uid: j.localId, rt: j.refreshToken };
+        return fsPut(sess, a.p_data || {}, null).then(function (w) {
+          if (w.error === 'conflict') return { username: u, token: sess, data: w.data, updated_at: w.updated_at };
+          if (w.error) return w;
+          return { username: u, token: sess, data: a.p_data || {}, updated_at: w.updated_at };
+        });
+      });
+    }
+    if (fn === 'ej_login') {
+      u = normUser(a.p_username);
+      if (!/^[a-z0-9_]{3,20}$/.test(u)) return R({ error: 'bad_login' });
+      return reauth(u, a.p_password).then(function (j) {
+        if (j.__err) return { error: j.__err };
+        keepId(j.localId, j.idToken, j.expiresIn);
+        var sess = { uid: j.localId, rt: j.refreshToken };
+        return fsGet(sess).then(function (g) { return g.error ? g : { username: u, token: sess, data: g.data, updated_at: g.updated_at }; });
+      });
+    }
+    if (fn === 'ej_load') return fsGet(a.p_token);
+    if (fn === 'ej_save') return fsPut(a.p_token, a.p_data, a.p_base, keepalive);
+    if (fn === 'ej_logout') { delete IDC[a.p_token.uid]; return R({ ok: true }); }
+    if (fn === 'ej_change_password') {
+      if (String(a.p_new || '').length < 6) return R({ error: 'short_password' });
+      return reauth(a.p_user, a.p_old).then(function (j) {
+        if (j.__err) return { error: j.__err === 'locked' ? 'locked' : 'bad_login' };
+        return authCall('update', { idToken: j.idToken, password: a.p_new, returnSecureToken: true }).then(function (k) {
+          if (k.__err) return { error: k.__err };
+          a.p_token.rt = k.refreshToken; keepId(a.p_token.uid, k.idToken, k.expiresIn); accSave();
+          return { ok: true };
+        });
+      });
+    }
+    if (fn === 'ej_delete') {
+      return reauth(a.p_user, a.p_password).then(function (j) {
+        if (j.__err) return { error: j.__err === 'locked' ? 'locked' : 'bad_login' };
+        return fetch(docUrl(j.localId), { method: 'DELETE', headers: { Authorization: 'Bearer ' + j.idToken } }).then(function () {
+          return authCall('delete', { idToken: j.idToken });
+        }).then(function (k) { return k.__err ? { error: k.__err } : { ok: true }; });
+      });
+    }
+    return Promise.reject(new Error('unknown ' + fn));
   }
   var SYNC = { state: 'idle', at: null }, pushT = 0, pushing = false;
   function syncText() {
@@ -271,12 +387,6 @@
     useProfile(id);
     if (dirty) markDirty();
     return p;
-  }
-  function recoverySheet(code, first) {
-    openSheet('<div class="sheet-head"><div class="h2">' + (first ? 'จดรหัสกู้คืนไว้' : 'รหัสกู้คืนชุดใหม่') + '</div></div>' +
-      '<p class="soft" style="margin-top:8px">ถ้าลืมรหัสผ่าน ใช้รหัสนี้ตั้งรหัสผ่านใหม่ได้ ไม่มีอีเมลไว้กู้บัญชี รหัสนี้แสดงครั้งเดียว ถ่ายรูปหรือจดเก็บไว้</p>' +
-      '<div class="recovery num" id="recCode">' + esc(fmtRecovery(code)) + '</div>' +
-      '<div class="row-actions" style="margin-top:16px"><button class="btn sm" data-copy="' + esc(fmtRecovery(code)) + '">' + icon('copy', 'i-sm') + 'คัดลอก</button><button class="btn primary" data-close>จดแล้ว เริ่มเรียน</button></div>');
   }
   function formErr(form, code, fallback) {
     var msg = ERR[code] || fallback || code;
@@ -1032,7 +1142,6 @@
     if (ACC.list.length && m !== 'list') L.push('<button class="link-btn" data-lg="list">' + icon('left', 'i-sm') + 'บัญชีในเครื่องนี้</button>');
     if (m !== 'login') L.push('<button class="link-btn" data-lg="login">เข้าสู่ระบบ</button>');
     if (m !== 'signup') L.push('<button class="link-btn" data-lg="signup">สมัครบัญชีใหม่</button>');
-    if (m === 'login') L.push('<button class="link-btn" data-lg="recover">ลืมรหัสผ่าน</button>');
     L.push('<button class="link-btn" id="guestGo">ลองเรียนโดยไม่สร้างบัญชี</button>');
     return '<div class="gate-links">' + L.join('') + '</div>';
   }
@@ -1050,7 +1159,7 @@
   }
   function signupFields(withColor) {
     return userField('suUser') + '<p class="hint">ภาษาอังกฤษตัวเล็ก ตัวเลข หรือ _ ยาว 3 ถึง 20 ตัว ใช้เข้าสู่ระบบจากเครื่องอื่น</p>' +
-      passField('suPass', 'รหัสผ่าน อย่างน้อย 6 ตัว', 'new-password') + passField('suPass2', 'ใส่รหัสผ่านอีกครั้ง', 'new-password') +
+      passField('suPass', 'รหัสผ่าน อย่างน้อย 6 ตัว (ลืมแล้วกู้คืนไม่ได้ จดไว้ให้ดี)', 'new-password') + passField('suPass2', 'ใส่รหัสผ่านอีกครั้ง', 'new-password') +
       (withColor ? '<div class="field"><label>สีโปรไฟล์</label>' + colorPick(ACC.list.length % AVA_N) + '</div>' : '');
   }
   function viewLogin() {
@@ -1079,12 +1188,6 @@
         '<form class="card pad gate-form" id="lgSignup">' + signupFields(true) +
           (mig ? '<label class="toggle"><input type="checkbox" id="migIn" checked>เอาความคืบหน้าที่เรียนไว้ในเครื่องนี้เข้าบัญชีด้วย</label>' : '') +
           '<button class="btn primary" type="submit">สมัครบัญชี</button></form>' + gateLinks(m);
-    } else if (m === 'recover') {
-      body = '<h1 class="title">ลืมรหัสผ่าน</h1><p class="lead">ใช้รหัสกู้คืนที่ได้ตอนสมัคร ตั้งรหัสผ่านใหม่</p>' +
-        '<form class="card pad gate-form" id="lgRecover">' + userField('rcUser', LG.user) +
-          '<div class="field"><label for="rcCode">รหัสกู้คืน</label><input class="input num" id="rcCode" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="XXXX-XXXX-XXXX"></div>' +
-          passField('rcPass', 'รหัสผ่านใหม่ อย่างน้อย 6 ตัว', 'new-password') +
-          '<button class="btn primary" type="submit">ตั้งรหัสผ่านใหม่</button></form>' + gateLinks(m);
     }
     return { html: '<div class="gate"><div class="gate-head"><span class="seal">学</span><span class="brand-name">Epic Japanese</span></div>' + body + '</div>',
       mount: function () { var f = $('.gate input:not([type=radio]):not([type=checkbox]):placeholder-shown, .gate input[type=password]') || $('.gate input:not([type=radio]):not([type=checkbox])'); if (f && m !== 'list') f.focus(); } };
@@ -1122,7 +1225,7 @@
     if (isCloud(p) && p.token) {
       html += '<form class="card pad acc-form" id="accPass" style="margin-top:16px"><div class="h3">เปลี่ยนรหัสผ่าน</div>' +
         passField('cpOld', 'รหัสผ่านเดิม') + passField('cpNew', 'รหัสผ่านใหม่ อย่างน้อย 6 ตัว', 'new-password') +
-        '<p class="hint">เครื่องอื่นที่เข้าบัญชีนี้ไว้จะต้องเข้าสู่ระบบใหม่</p><div><button class="btn sm" type="submit">เปลี่ยนรหัสผ่าน</button></div></form>';
+        '<p class="hint">เครื่องอื่นที่เข้าบัญชีนี้ไว้จะต้องเข้าสู่ระบบใหม่ ไม่มีอีเมลไว้กู้รหัสผ่าน จำรหัสใหม่ให้ดี</p><div><button class="btn sm" type="submit">เปลี่ยนรหัสผ่าน</button></div></form>';
     }
     if (isCloud(p)) {
       html += '<div class="card pad" style="margin-top:16px"><div class="h3">ออกจากระบบเครื่องนี้</div><p class="soft" style="font-size:14px;margin-top:4px">ลบบัญชีนี้ออกจากรายการในเครื่องนี้ ข้อมูลบนเซิร์ฟเวอร์ยังอยู่ เข้าใหม่ได้ด้วยรหัสผ่าน</p>' +
@@ -1255,14 +1358,14 @@
     return function (err) {
       console.error(err);
       var m = String(err && err.message || err), code = (/"code"\s*:\s*"([^"]+)"/.exec(m) || [])[1];
-      var why = /Failed to fetch|NetworkError|Load failed/i.test(m) ? 'network' : (code === 'PGRST202' ? 'ยังไม่ได้ติดตั้งฐานข้อมูล (ต้องรันไฟล์ supabase/schema.sql ใน SQL Editor)' : null);
+      var why = /Failed to fetch|NetworkError|Load failed/i.test(m) ? 'network' : (/PERMISSION_DENIED/.test(m) ? 'ฐานข้อมูลไม่อนุญาต ตรวจกฎใน Firestore Rules' : null);
       formErr(f, why || 'network');
       if (why !== 'network') { var e = $('.form-err', f); e.textContent += ' · รายละเอียด: ' + m.slice(0, 180); }
     };
   }
   document.addEventListener('submit', function (e) {
     var f = e.target;
-    var ids = ['lgPin', 'lgLogin', 'lgSignup', 'lgRecover', 'accRelogin', 'accUpgrade', 'accName', 'accPin', 'accPass', 'accDelete'];
+    var ids = ['lgPin', 'lgLogin', 'lgSignup', 'accRelogin', 'accUpgrade', 'accName', 'accPin', 'accPass', 'accDelete'];
     if (ids.indexOf(f.id) < 0) return;
     e.preventDefault();
     var p = me();
@@ -1300,16 +1403,7 @@
         if (oldLocal) forget(oldLocal);
         var np = adoptCloud(r, color, data, false);
         if (pinMeta) { np.pin = pinMeta.pin; np.salt = pinMeta.salt; accSave(); }
-        recoverySheet(r.recovery, true);
-      }, onNet(f));
-      return;
-    }
-    if (f.id === 'lgRecover') {
-      formBusy(f, true, 'กำลังตรวจรหัส…');
-      rpc('ej_recover', { p_username: val('rcUser'), p_code: val('rcCode'), p_new: val('rcPass') }).then(function (r) {
-        if (r.error) return formErr(f, r.error === 'bad_login' ? 'bad_recover' : r.error);
-        adoptCloud(r, null, normData(r.data), false);
-        recoverySheet(r.recovery, false);
+        toast('สมัครบัญชีแล้ว จำชื่อผู้ใช้กับรหัสผ่านไว้ใช้เข้าเครื่องอื่น');
       }, onNet(f));
       return;
     }
@@ -1336,7 +1430,7 @@
     }
     if (f.id === 'accPass') {
       formBusy(f, true, 'กำลังเปลี่ยน…');
-      rpc('ej_change_password', { p_token: p.token, p_old: val('cpOld'), p_new: val('cpNew') }).then(function (r) {
+      rpc('ej_change_password', { p_token: p.token, p_user: p.user, p_old: val('cpOld'), p_new: val('cpNew') }).then(function (r) {
         if (r.error === 'bad_login') return formErr(f, 'รหัสผ่านเดิมไม่ถูกต้อง');
         if (r.error) return formErr(f, r.error);
         toast('เปลี่ยนรหัสผ่านแล้ว'); route();
@@ -1345,7 +1439,7 @@
     }
     if (f.id === 'accDelete') {
       formBusy(f, true, 'กำลังลบ…');
-      rpc('ej_delete', { p_token: p.token, p_password: val('delPass') }).then(function (r) {
+      rpc('ej_delete', { p_token: p.token, p_user: p.user, p_password: val('delPass') }).then(function (r) {
         if (r.error === 'bad_login') return formErr(f, 'รหัสผ่านไม่ถูกต้อง');
         if (r.error) return formErr(f, r.error);
         forget(p); toast('ลบบัญชี ' + p.name + ' แล้ว'); LG = { mode: null }; signOutView();
