@@ -95,9 +95,11 @@
     add({ id: lv.id + '-exam', kind: 'exam', title: 'สอบท้าย' + lv.title, jp: '試験' });
   });
 
-  /* ================= accounts: โปรไฟล์ในเครื่อง ไม่ใช้อีเมล =================
-     รายชื่อโปรไฟล์อยู่ที่ ACC_KEY ความคืบหน้าของแต่ละคนแยกคีย์กัน
-     PIN เก็บเป็นแฮช SHA-256 ใช้กันคนในเครื่องเดียวกันกดเข้าผิดโปรไฟล์ ไม่ใช่การเข้ารหัสข้อมูล */
+  /* ================= accounts =================
+     บัญชีออนไลน์: ชื่อผู้ใช้ + รหัสผ่าน ไม่ใช้อีเมล เก็บที่ Supabase ผ่านฟังก์ชัน ej_* (ดู supabase/schema.sql)
+     เครื่องที่เคยเข้าแล้วจำบัญชีไว้ในรายการ ACC พร้อมโทเค็น ความคืบหน้าเก็บในเครื่องก่อนแล้วซิงก์ตามไป
+     PIN เป็นแฮชในเครื่อง ใช้ล็อกตอนสลับบัญชีบนเครื่องเดียวกัน ส่วนรหัสผ่านใช้ตอนเข้าเครื่องใหม่ */
+  var CLOUD = window.EJ_CLOUD || null;
   var ACC_KEY = 'epicjapanese:accounts', GUEST_KEY = 'epicjapanese:v1', GUEST_FLAG = 'epicjapanese:guest';
   var AVA_N = 4;
   function accLoad() {
@@ -108,6 +110,7 @@
   function accSave() { try { localStorage.setItem(ACC_KEY, JSON.stringify(ACC)); } catch (e) { /* ignore */ } }
   function profile(id) { return ACC.list.filter(function (p) { return p.id === id; })[0] || null; }
   function me() { return profile(ACC.current); }
+  function isCloud(p) { return !!(p && p.user); }
   var guest = false;
   try { guest = sessionStorage.getItem(GUEST_FLAG) === '1'; } catch (e) { /* ignore */ }
   function setGuest(on) { guest = on; try { if (on) sessionStorage.setItem(GUEST_FLAG, '1'); else sessionStorage.removeItem(GUEST_FLAG); } catch (e) { /* ignore */ } }
@@ -138,35 +141,155 @@
   function useProfile(id) {
     ACC.current = id; accSave(); setGuest(false);
     KEY = dataKey(id); S = load(); LG = { mode: null, id: null, err: '' };
+    SYNC.state = 'idle'; SYNC.at = null;
     safeRoute();
+    if (isCloud(me())) pull(true);
   }
-  function logout() {
+  function signOutView() {
     ACC.current = null; accSave(); setGuest(false);
-    KEY = GUEST_KEY; S = load(); LG = { mode: null, id: null, err: '' };
+    KEY = GUEST_KEY; S = load();
     location.hash = '#/'; safeRoute();
   }
+  function forget(p) {
+    try { localStorage.removeItem(dataKey(p.id)); } catch (e) { /* ignore */ }
+    ACC.list = ACC.list.filter(function (x) { return x !== p; }); accSave();
+  }
+  function fmtRecovery(c) { return String(c || '').replace(/(.{4})(?=.)/g, '$1-'); }
 
-  /* รหัสย้ายเครื่อง: JSON → deflate → base64url ขึ้นต้น EJ1. (EJ0. เมื่อเบราว์เซอร์บีบอัดไม่ได้) */
-  function b64url(u8) { var s = ''; for (var i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
-  function unb64url(s) { s = s.replace(/-/g, '+').replace(/_/g, '/'); while (s.length % 4) s += '='; var b = atob(s), u = new Uint8Array(b.length); for (var i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; }
-  function pipeBytes(u8, stream) { return new Response(new Blob([u8]).stream().pipeThrough(stream)).arrayBuffer().then(function (b) { return new Uint8Array(b); }); }
-  function encodeTransfer(obj) {
-    var u8 = new TextEncoder().encode(JSON.stringify(obj));
-    if (window.CompressionStream) return pipeBytes(u8, new CompressionStream('deflate-raw')).then(function (z) { return 'EJ1.' + b64url(z); });
-    return Promise.resolve('EJ0.' + b64url(u8));
+  /* ---------- cloud ---------- */
+  var ERR = {
+    bad_username: 'ชื่อผู้ใช้ใช้ได้เฉพาะ a-z, 0-9 และ _ ยาว 3 ถึง 20 ตัว',
+    short_password: 'รหัสผ่านต้องยาวอย่างน้อย 6 ตัว',
+    taken: 'ชื่อผู้ใช้นี้มีคนใช้แล้ว ลองชื่ออื่น',
+    bad_login: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง',
+    bad_recover: 'ชื่อผู้ใช้หรือรหัสกู้คืนไม่ถูกต้อง',
+    locked: 'ใส่ผิดหลายครั้ง บัญชีถูกพักไว้ 15 นาที',
+    too_big: 'ข้อมูลใหญ่เกินกว่าจะบันทึกได้',
+    mismatch: 'รหัสผ่านสองช่องไม่ตรงกัน',
+    network: 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้ ตรวจอินเทอร์เน็ตแล้วลองใหม่'
+  };
+  function rpc(fn, args, keepalive) {
+    if (!CLOUD) return Promise.reject(new Error('no_cloud'));
+    return fetch(CLOUD.url + '/rest/v1/rpc/' + fn, {
+      method: 'POST', keepalive: !!keepalive,
+      headers: { apikey: CLOUD.key, 'Content-Type': 'application/json' },
+      body: JSON.stringify(args)
+    }).then(function (r) {
+      if (!r.ok) return r.text().then(function (t) { throw new Error('http ' + r.status + ' ' + t.slice(0, 160)); });
+      return r.json();
+    });
   }
-  function decodeTransfer(str) {
-    try {
-      var m = /^EJ([01])\.([A-Za-z0-9_-]+)$/.exec(String(str).replace(/\s+/g, ''));
-      if (!m) return Promise.reject(new Error('format'));
-      var u8 = unb64url(m[2]);
-      var p = m[1] === '1' ? (window.DecompressionStream ? pipeBytes(u8, new DecompressionStream('deflate-raw')) : Promise.reject(new Error('nodeflate'))) : Promise.resolve(u8);
-      return p.then(function (b) { var o = JSON.parse(new TextDecoder().decode(b)); if (!o || o.t !== 'ej-transfer' || !o.p || !o.d || o.d.v !== 1) throw new Error('payload'); return o; });
-    } catch (e) { return Promise.reject(e); }
+  var SYNC = { state: 'idle', at: null }, pushT = 0, pushing = false;
+  function syncText() {
+    var s = SYNC.state;
+    if (s === 'saving') return 'กำลังซิงก์';
+    if (s === 'offline') return 'ออฟไลน์ ข้อมูลอยู่ในเครื่อง จะซิงก์เมื่อต่อเน็ต';
+    if (s === 'error') return 'ซิงก์ไม่สำเร็จ จะลองใหม่อัตโนมัติ';
+    if (s === 'signedout') return 'หมดเวลาเข้าสู่ระบบ ใส่รหัสผ่านอีกครั้งเพื่อซิงก์';
+    if (SYNC.at) return 'ซิงก์แล้ว ' + pad2(SYNC.at.getHours()) + ':' + pad2(SYNC.at.getMinutes());
+    return 'บัญชีออนไลน์';
   }
-  function transferPayload() {
+  function setSync(s) {
+    SYNC.state = s; if (s === 'ok') SYNC.at = new Date();
+    var el = $('#syncLine'); if (el) { el.textContent = syncText(); el.className = 'sync sync-' + s; }
+  }
+  function busy() { return !!($('#quizBox') || $('#revBox') || $('.gate')); }
+  function mergeData(a, b) {
+    var o = normData(JSON.parse(JSON.stringify(a))), y = normData(b);
+    Object.keys(y.done).forEach(function (k) { var p = o.done[k], q = y.done[k]; if (!p || (q.score || 0) > (p.score || 0)) o.done[k] = q; });
+    Object.keys(y.srs).forEach(function (k) {
+      var p = o.srs[k], q = y.srs[k];
+      if (!p) { o.srs[k] = q; return; }
+      var np = (p.reps || 0) + (p.lapses || 0), nq = (q.reps || 0) + (q.lapses || 0);
+      if (nq > np || (nq === np && (q.due || 0) > (p.due || 0))) o.srs[k] = q;
+    });
+    Object.keys(y.days).forEach(function (k) { o.days[k] = Math.max(o.days[k] || 0, y.days[k] || 0); });
+    Object.keys(y.stats).forEach(function (k) { o.stats[k] = Math.max(o.stats[k] || 0, y.stats[k] || 0); });
+    if (y.created && (!o.created || y.created < o.created)) o.created = y.created;
+    return o;
+  }
+  function storeLocal() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
+  function markDirty() {
+    var p = me(); if (!isCloud(p)) return;
+    if (!p.dirty) { p.dirty = true; accSave(); }
+    clearTimeout(pushT); pushT = setTimeout(push, 1500);
+  }
+  function push() {
     var p = me();
-    return { t: 'ej-transfer', v: 1, p: { id: p.id, name: p.name, color: p.color, pin: p.pin || null, salt: p.salt, created: p.created }, d: S };
+    if (!isCloud(p) || !p.token || !p.dirty) return Promise.resolve();
+    if (pushing) { clearTimeout(pushT); pushT = setTimeout(push, 1500); return Promise.resolve(); }
+    if (navigator.onLine === false) { setSync('offline'); return Promise.resolve(); }
+    pushing = true; setSync('saving');
+    var snap = JSON.stringify(S);
+    return rpc('ej_save', { p_token: p.token, p_data: S, p_base: p.base || null }).then(function (r) {
+      pushing = false;
+      if (me() !== p) return;
+      if (r.error === 'conflict') { S = mergeData(S, r.data); p.base = r.updated_at; storeLocal(); accSave(); chrome(); return push(); }
+      if (r.error === 'bad_session') { p.token = null; accSave(); setSync('signedout'); return; }
+      if (r.error) { setSync('error'); return; }
+      p.base = r.updated_at;
+      if (JSON.stringify(S) === snap) p.dirty = false;
+      accSave(); setSync('ok');
+      if (p.dirty) { clearTimeout(pushT); pushT = setTimeout(push, 1500); }
+    }).catch(function () {
+      pushing = false; setSync(navigator.onLine === false ? 'offline' : 'error');
+      clearTimeout(pushT); pushT = setTimeout(push, 20000);
+    });
+  }
+  function pull(rerender) {
+    var p = me();
+    if (!isCloud(p) || !p.token) { if (isCloud(p)) setSync('signedout'); return Promise.resolve(); }
+    setSync('saving');
+    return rpc('ej_load', { p_token: p.token }).then(function (r) {
+      if (me() !== p) return;
+      if (r.error === 'bad_session') { p.token = null; accSave(); setSync('signedout'); if (rerender && !busy()) safeRoute(); return; }
+      if (r.error) { setSync('error'); return; }
+      if (r.updated_at !== p.base) {
+        var server = normData(r.data);
+        S = p.dirty ? mergeData(S, server) : server;
+        p.base = r.updated_at; storeLocal(); accSave();
+        if (rerender && !busy()) safeRoute(); else chrome();
+      }
+      setSync('ok');
+      if (p.dirty) return push();
+    }).catch(function () { setSync(navigator.onLine === false ? 'offline' : 'error'); });
+  }
+  function flush() {
+    var p = me();
+    if (!isCloud(p) || !p.token || !p.dirty || pushing) return;
+    var body = { p_token: p.token, p_data: S, p_base: p.base || null };
+    if (JSON.stringify(body).length < 60000) rpc('ej_save', body, true).catch(function () { /* next visit retries */ });
+  }
+  /* เข้าระบบสำเร็จ: เพิ่ม/อัปเดตบัญชีในรายการของเครื่องนี้ เก็บข้อมูล แล้วเปิดบัญชีนั้น */
+  function adoptCloud(r, color, data, dirty) {
+    var id = 'u:' + r.username, p = profile(id);
+    if (!p) { p = { id: id, user: r.username, name: r.username, color: color || 0, salt: newId(), created: dayKey() }; ACC.list.push(p); }
+    if (color != null) p.color = color;
+    p.token = r.token; p.base = r.updated_at; p.dirty = !!dirty;
+    try { localStorage.setItem(dataKey(id), JSON.stringify(normData(data || {}))); } catch (e) { /* ignore */ }
+    accSave();
+    useProfile(id);
+    if (dirty) markDirty();
+    return p;
+  }
+  function recoverySheet(code, first) {
+    openSheet('<div class="sheet-head"><div class="h2">' + (first ? 'จดรหัสกู้คืนไว้' : 'รหัสกู้คืนชุดใหม่') + '</div></div>' +
+      '<p class="soft" style="margin-top:8px">ถ้าลืมรหัสผ่าน ใช้รหัสนี้ตั้งรหัสผ่านใหม่ได้ ไม่มีอีเมลไว้กู้บัญชี รหัสนี้แสดงครั้งเดียว ถ่ายรูปหรือจดเก็บไว้</p>' +
+      '<div class="recovery num" id="recCode">' + esc(fmtRecovery(code)) + '</div>' +
+      '<div class="row-actions" style="margin-top:16px"><button class="btn sm" data-copy="' + esc(fmtRecovery(code)) + '">' + icon('copy', 'i-sm') + 'คัดลอก</button><button class="btn primary" data-close>จดแล้ว เริ่มเรียน</button></div>');
+  }
+  function formErr(form, code, fallback) {
+    var msg = ERR[code] || fallback || code;
+    var e = $('.form-err', form);
+    if (!e) { e = document.createElement('p'); e.className = 'form-err'; e.setAttribute('role', 'alert'); var b = $('button[type=submit]', form); b.parentNode.insertBefore(e, b.closest('.row-actions') || b); }
+    e.textContent = msg;
+    form.classList.remove('shake'); void form.offsetWidth; form.classList.add('shake');
+    formBusy(form, false);
+  }
+  function formBusy(form, on, label) {
+    var b = $('button[type=submit]', form); if (!b) return;
+    if (on) { b.dataset.label = b.textContent; b.textContent = label || 'กำลังส่ง…'; b.disabled = true; }
+    else if (b.dataset.label) { b.textContent = b.dataset.label; b.disabled = false; }
   }
 
   /* ================= store ================= */
@@ -176,21 +299,21 @@
     return { v: 1, created: dayKey(), done: {}, srs: {}, days: {}, stats: { answered: 0, correct: 0, written: 0, reviews: 0 },
       settings: { goal: 30, rate: 0.9, romaji: true, furigana: true, voice: '' } };
   }
-  function load() {
+  function normData(s) {
     var d = defaults();
-    try {
-      var s = JSON.parse(localStorage.getItem(KEY));
-      if (s && s.v === 1) {
-        Object.keys(d).forEach(function (k) {
-          if (s[k] === undefined) return;
-          d[k] = (typeof d[k] === 'object' && !Array.isArray(d[k])) ? Object.assign(d[k], s[k]) : s[k];
-        });
-      }
-    } catch (e) { /* storage unavailable */ }
+    if (s && s.v === 1) {
+      Object.keys(d).forEach(function (k) {
+        if (s[k] === undefined || s[k] === null) return;
+        d[k] = (typeof d[k] === 'object' && !Array.isArray(d[k])) ? Object.assign(d[k], s[k]) : s[k];
+      });
+    }
     return d;
   }
+  function load() {
+    try { return normData(JSON.parse(localStorage.getItem(KEY))); } catch (e) { return defaults(); }
+  }
   var S = load();
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
+  function save() { storeLocal(); markDirty(); }
 
   function xpToday() { return S.days[dayKey()] || 0; }
   function addXP(n) { var k = dayKey(); S.days[k] = (S.days[k] || 0) + n; save(); chrome(); }
@@ -904,11 +1027,14 @@
   }
 
   /* ================= login / account ================= */
-  function gateLinks(withList) {
-    return '<div class="gate-links">' +
-      (withList ? '<button class="link-btn" data-lg="list">' + icon('left', 'i-sm') + 'กลับไปเลือกโปรไฟล์</button>' : '') +
-      (LG.mode !== 'code' ? '<button class="link-btn" data-lg="code">มีรหัสย้ายเครื่อง</button>' : '') +
-      '<button class="link-btn" id="guestGo">ลองเรียนโดยไม่สร้างบัญชี</button></div>';
+  function gateLinks(m) {
+    var L = [];
+    if (ACC.list.length && m !== 'list') L.push('<button class="link-btn" data-lg="list">' + icon('left', 'i-sm') + 'บัญชีในเครื่องนี้</button>');
+    if (m !== 'login') L.push('<button class="link-btn" data-lg="login">เข้าสู่ระบบ</button>');
+    if (m !== 'signup') L.push('<button class="link-btn" data-lg="signup">สมัครบัญชีใหม่</button>');
+    if (m === 'login') L.push('<button class="link-btn" data-lg="recover">ลืมรหัสผ่าน</button>');
+    L.push('<button class="link-btn" id="guestGo">ลองเรียนโดยไม่สร้างบัญชี</button>');
+    return '<div class="gate-links">' + L.join('') + '</div>';
   }
   function colorPick(sel) {
     var names = ['ชมพู', 'เขียวมะนาว', 'ดำ', 'ขาว'];
@@ -916,62 +1042,98 @@
       return '<label class="ava-opt"><input type="radio" name="color" value="' + i + '"' + (i === sel ? ' checked' : '') + '><span class="ava ava-c' + i + '" title="' + n + '"></span><span class="sr">' + n + '</span></label>';
     }).join('') + '</div>';
   }
+  function userField(id, val) {
+    return '<div class="field"><label for="' + id + '">ชื่อผู้ใช้</label><input class="input" id="' + id + '" value="' + esc(val || '') + '" maxlength="20" autocomplete="username" autocapitalize="none" spellcheck="false" required pattern="[A-Za-z0-9_]{3,20}" placeholder="เช่น nuy_jp"></div>';
+  }
+  function passField(id, label, auto) {
+    return '<div class="field"><label for="' + id + '">' + label + '</label><input class="input" id="' + id + '" type="password" minlength="6" autocomplete="' + (auto || 'current-password') + '" required></div>';
+  }
+  function signupFields(withColor) {
+    return userField('suUser') + '<p class="hint">ภาษาอังกฤษตัวเล็ก ตัวเลข หรือ _ ยาว 3 ถึง 20 ตัว ใช้เข้าสู่ระบบจากเครื่องอื่น</p>' +
+      passField('suPass', 'รหัสผ่าน อย่างน้อย 6 ตัว', 'new-password') + passField('suPass2', 'ใส่รหัสผ่านอีกครั้ง', 'new-password') +
+      (withColor ? '<div class="field"><label>สีโปรไฟล์</label>' + colorPick(ACC.list.length % AVA_N) + '</div>' : '');
+  }
   function viewLogin() {
-    var list = ACC.list, m = LG.mode || (list.length ? 'list' : 'new'), body = '';
-    var err = LG.err ? '<p class="form-err" role="alert">' + esc(LG.err) + '</p>' : '';
+    var list = ACC.list, m = LG.mode || (list.length ? 'list' : 'signup'), body = '';
     if (m === 'list') {
-      body = '<h1 class="title">ใครกำลังเรียน</h1><p class="lead">เลือกโปรไฟล์ของคุณในเครื่องนี้</p>' +
+      body = '<h1 class="title">ใครกำลังเรียน</h1><p class="lead">บัญชีที่เคยเข้าในเครื่องนี้</p>' +
         '<div class="who">' + list.map(function (p) {
-          return '<button class="who-btn" data-login="' + p.id + '">' + ava(p, 'ava-xl') + '<span class="who-name">' + esc(p.name) + '</span><span class="who-meta">' + (p.pin ? 'ใส่ PIN' : 'เข้าได้เลย') + '</span></button>';
+          var meta = isCloud(p) ? (p.token ? (p.pin ? 'ใส่ PIN' : 'เข้าได้เลย') : 'ใส่รหัสผ่าน') : 'ในเครื่องเท่านั้น';
+          return '<button class="who-btn" data-login="' + esc(p.id) + '">' + ava(p, 'ava-xl') + '<span class="who-name">' + esc(p.name) + '</span><span class="who-meta">' + meta + '</span></button>';
         }).join('') +
-        '<button class="who-btn" data-lg="new"><span class="ava ava-xl ava-add" aria-hidden="true">+</span><span class="who-name">โปรไฟล์ใหม่</span><span class="who-meta">ใช้ชื่อเล่นก็ได้</span></button></div>' + gateLinks(false);
+        '<button class="who-btn" data-lg="login"><span class="ava ava-xl ava-add" aria-hidden="true">+</span><span class="who-name">บัญชีอื่น</span><span class="who-meta">เข้าสู่ระบบหรือสมัคร</span></button></div>' + gateLinks(m);
     } else if (m === 'pin') {
       var p = profile(LG.id);
       if (!p) { LG.mode = 'list'; return viewLogin(); }
       body = '<form class="card pad gate-form" id="lgPin">' +
-        '<div class="gate-who">' + ava(p, 'ava-lg') + '<div><div class="h2">' + esc(p.name) + '</div><div class="muted">ใส่ PIN ของโปรไฟล์นี้</div></div></div>' +
-        '<div class="field"><label for="pinIn">PIN</label><input class="input pin-in" id="pinIn" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required></div>' + err +
-        '<button class="btn primary" type="submit">เข้าสู่ระบบ</button></form>' + gateLinks(true);
-    } else if (m === 'new') {
+        '<div class="gate-who">' + ava(p, 'ava-lg') + '<div><div class="h2">' + esc(p.name) + '</div><div class="muted">ใส่ PIN ของบัญชีนี้</div></div></div>' +
+        '<div class="field"><label for="pinIn">PIN</label><input class="input pin-in" id="pinIn" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="off" required></div>' +
+        '<button class="btn primary" type="submit">เข้าเรียน</button></form>' + gateLinks(m);
+    } else if (m === 'login') {
+      body = '<h1 class="title">เข้าสู่ระบบ</h1><p class="lead">ใส่ชื่อผู้ใช้กับรหัสผ่าน ความคืบหน้าของบัญชีจะตามมาทุกเครื่อง</p>' +
+        '<form class="card pad gate-form" id="lgLogin">' + userField('liUser', LG.user) + passField('liPass', 'รหัสผ่าน') +
+        '<button class="btn primary" type="submit">เข้าสู่ระบบ</button></form>' + gateLinks(m);
+    } else if (m === 'signup') {
       var mig = guestHasProgress();
-      body = '<h1 class="title">' + (list.length ? 'สร้างโปรไฟล์ใหม่' : 'เริ่มจากตั้งชื่อ') + '</h1><p class="lead">ไม่ต้องใช้อีเมล ความคืบหน้าเก็บในเครื่องนี้ ย้ายเครื่องได้ด้วยรหัสย้ายเครื่อง</p>' +
-        '<form class="card pad gate-form" id="lgNew">' +
-          '<div class="field"><label for="nmIn">ชื่อที่ใช้ในเว็บ</label><input class="input" id="nmIn" maxlength="20" autocomplete="nickname" required placeholder="เช่น นุ้ย"></div>' +
-          '<div class="field"><label>สีโปรไฟล์</label>' + colorPick(list.length % AVA_N) + '</div>' +
-          '<div class="field"><label for="pinNew">PIN 4 ถึง 6 หลัก <span class="muted">ไม่ใส่ก็ได้</span></label><input class="input pin-in" id="pinNew" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="new-password"></div>' +
-          (mig ? '<label class="toggle"><input type="checkbox" id="migIn" checked>ย้ายความคืบหน้าที่เรียนไว้แล้วในเครื่องนี้เข้าโปรไฟล์นี้</label>' : '') + err +
-          '<button class="btn primary" type="submit">สร้างโปรไฟล์</button></form>' + gateLinks(list.length > 0);
-    } else if (m === 'code') {
-      body = '<h1 class="title">ย้ายโปรไฟล์มาเครื่องนี้</h1><p class="lead">เปิดหน้าบัญชีในเครื่องเดิม กดสร้างรหัสย้ายเครื่อง แล้ววางรหัสที่นี่</p>' +
-        '<form class="card pad gate-form" id="lgCode">' +
-          '<div class="field"><label for="codeIn">รหัสย้ายเครื่อง</label><textarea class="input code-in" id="codeIn" rows="5" spellcheck="false" autocomplete="off" required placeholder="EJ1.…"></textarea></div>' + err +
-          '<button class="btn primary" type="submit">ย้ายเข้าเครื่องนี้</button></form>' + gateLinks(list.length > 0);
+      body = '<h1 class="title">สมัครบัญชี</h1><p class="lead">ไม่ต้องใช้อีเมล ใช้ชื่อผู้ใช้กับรหัสผ่านเข้าเรียนได้ทุกเครื่อง</p>' +
+        '<form class="card pad gate-form" id="lgSignup">' + signupFields(true) +
+          (mig ? '<label class="toggle"><input type="checkbox" id="migIn" checked>เอาความคืบหน้าที่เรียนไว้ในเครื่องนี้เข้าบัญชีด้วย</label>' : '') +
+          '<button class="btn primary" type="submit">สมัครบัญชี</button></form>' + gateLinks(m);
+    } else if (m === 'recover') {
+      body = '<h1 class="title">ลืมรหัสผ่าน</h1><p class="lead">ใช้รหัสกู้คืนที่ได้ตอนสมัคร ตั้งรหัสผ่านใหม่</p>' +
+        '<form class="card pad gate-form" id="lgRecover">' + userField('rcUser', LG.user) +
+          '<div class="field"><label for="rcCode">รหัสกู้คืน</label><input class="input num" id="rcCode" autocomplete="off" autocapitalize="characters" spellcheck="false" required placeholder="XXXX-XXXX-XXXX"></div>' +
+          passField('rcPass', 'รหัสผ่านใหม่ อย่างน้อย 6 ตัว', 'new-password') +
+          '<button class="btn primary" type="submit">ตั้งรหัสผ่านใหม่</button></form>' + gateLinks(m);
     }
     return { html: '<div class="gate"><div class="gate-head"><span class="seal">学</span><span class="brand-name">Epic Japanese</span></div>' + body + '</div>',
-      mount: function () { var f = $('.gate input:not([type=radio]):not([type=checkbox]), .gate textarea'); if (f) f.focus(); } };
+      mount: function () { var f = $('.gate input:not([type=radio]):not([type=checkbox]):placeholder-shown, .gate input[type=password]') || $('.gate input:not([type=radio]):not([type=checkbox])'); if (f && m !== 'list') f.focus(); } };
   }
 
+  function pinCard(p) {
+    return '<form class="card pad acc-form" id="accPin" style="margin-top:16px"><div class="h3">PIN</div><p class="soft" style="font-size:14px">' +
+      (isCloud(p) ? 'ล็อกบัญชีนี้ในเครื่องนี้ตอนสลับบัญชี เข้าเครื่องใหม่ใช้รหัสผ่านตามปกติ' : 'กันคนอื่นที่ใช้เครื่องเดียวกันกดเข้าโปรไฟล์นี้') + '</p>' +
+      '<div class="field"><label for="accPinIn">PIN ใหม่ 4 ถึง 6 หลัก</label><input class="input pin-in" id="accPinIn" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="off" required></div>' +
+      '<div class="row-actions"><button class="btn sm" type="submit">' + (p.pin ? 'เปลี่ยน PIN' : 'ตั้ง PIN') + '</button>' + (p.pin ? '<button class="btn sm ghost" type="button" id="pinOff">เอา PIN ออก</button>' : '') + '</div></form>';
+  }
   function viewAccount() {
     var p = me();
     if (!p) {
       return '<div class="page page-narrow"><h1 class="title">บัญชี</h1><div class="card empty" style="margin-top:32px"><div class="h2">ตอนนี้เรียนแบบไม่มีบัญชี</div>' +
-        '<p>ความคืบหน้าเก็บในเบราว์เซอร์นี้ สร้างโปรไฟล์เพื่อแยกคนเรียนและย้ายไปเครื่องอื่นได้ ของที่เรียนไว้ย้ายเข้าโปรไฟล์ได้ตอนสร้าง</p>' +
-        '<div class="row-actions"><button class="btn primary" data-lg-go="new">สร้างโปรไฟล์</button><button class="btn" data-lg-go="list">เข้าโปรไฟล์ที่มีอยู่</button></div></div></div>';
+        '<p>ความคืบหน้าเก็บในเบราว์เซอร์นี้เท่านั้น สมัครบัญชีเพื่อเรียนต่อได้ทุกเครื่อง ของที่เรียนไว้เอาเข้าบัญชีได้ตอนสมัคร</p>' +
+        '<div class="row-actions"><button class="btn primary" data-lg-go="signup">สมัครบัญชี</button><button class="btn" data-lg-go="login">เข้าสู่ระบบ</button></div></div></div>';
     }
-    return '<div class="page page-narrow"><h1 class="title">บัญชี</h1>' +
-      '<div class="card pad acc-head" style="margin-top:32px">' + ava(p, 'ava-lg') + '<div class="grow"><div class="h2">' + esc(p.name) + '</div><div class="muted">สร้างเมื่อ ' + thDate(p.created) + (p.pin ? ' มี PIN' : ' ไม่มี PIN') + '</div></div>' +
-        '<button class="btn sm" id="logout">' + icon('swap', 'i-sm') + 'เปลี่ยนโปรไฟล์</button></div>' +
-      '<form class="card pad acc-form" id="accName" style="margin-top:16px"><div class="h3">ชื่อและสี</div>' +
-        '<div class="field"><label for="accNm">ชื่อที่ใช้ในเว็บ</label><input class="input" id="accNm" maxlength="20" required value="' + esc(p.name) + '"></div>' +
-        '<div class="field"><label>สีโปรไฟล์</label>' + colorPick(p.color || 0) + '</div>' +
-        '<div><button class="btn sm" type="submit">บันทึก</button></div></form>' +
-      '<form class="card pad acc-form" id="accPin" style="margin-top:16px"><div class="h3">PIN</div><p class="soft" style="font-size:14px">กันคนอื่นที่ใช้เครื่องเดียวกันกดเข้าโปรไฟล์นี้ ถ้าลืม PIN ต้องย้ายเข้ามาใหม่ด้วยรหัสย้ายเครื่อง</p>' +
-        '<div class="field"><label for="accPinIn">PIN ใหม่ 4 ถึง 6 หลัก</label><input class="input pin-in" id="accPinIn" type="password" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" autocomplete="new-password"' + (p.pin ? '' : ' required') + '></div>' +
-        '<div class="row-actions"><button class="btn sm" type="submit">' + (p.pin ? 'เปลี่ยน PIN' : 'ตั้ง PIN') + '</button>' + (p.pin ? '<button class="btn sm ghost" type="button" id="pinOff">เอา PIN ออก</button>' : '') + '</div></form>' +
-      '<div class="card pad" style="margin-top:16px"><div class="h3">รหัสย้ายเครื่อง</div><p class="soft" style="font-size:14px;margin-top:4px">รหัสนี้มีความคืบหน้าทั้งหมดของโปรไฟล์ คัดลอกไปวางที่หน้าเข้าสู่ระบบในเครื่องใหม่ ใครได้รหัสไปก็เปิดโปรไฟล์นี้ได้ อย่าส่งให้คนอื่น</p>' +
-        '<div id="codeBox" style="margin-top:16px"><button class="btn sm" id="mkCode">' + icon('key', 'i-sm') + 'สร้างรหัสย้ายเครื่อง</button></div></div>' +
-      '<div class="card pad" style="margin-top:16px"><div class="h3">ลบโปรไฟล์</div><p class="soft" style="font-size:14px;margin-top:4px">ลบชื่อและความคืบหน้าของโปรไฟล์นี้ออกจากเครื่องนี้ ย้อนกลับไม่ได้ ถ้ามีรหัสย้ายเครื่องเก็บไว้จะกู้คืนได้</p>' +
-        '<div class="row-actions" style="margin-top:16px"><button class="btn sm ghost" id="delMe">ลบโปรไฟล์นี้</button></div></div></div>';
+    var head = '<div class="card pad acc-head" style="margin-top:32px">' + ava(p, 'ava-lg') + '<div class="grow"><div class="h2">' + esc(p.name) + '</div>' +
+      (isCloud(p) ? '<div class="sync sync-' + SYNC.state + '" id="syncLine">' + esc(syncText()) + '</div>' : '<div class="muted">โปรไฟล์ในเครื่องนี้ ยังไม่มีบัญชีออนไลน์</div>') + '</div>' +
+      '<div class="row-actions">' + (isCloud(p) && p.token ? '<button class="btn sm" id="syncNow">' + icon('redo', 'i-sm') + 'ซิงก์ตอนนี้</button>' : '') +
+      '<button class="btn sm" id="switchAcc">' + icon('swap', 'i-sm') + 'เปลี่ยนบัญชี</button></div></div>';
+    var html = '<div class="page page-narrow"><h1 class="title">บัญชี</h1>' + head;
+    if (isCloud(p) && !p.token) {
+      html += '<form class="card pad acc-form" id="accRelogin" style="margin-top:16px"><div class="h3">เข้าสู่ระบบอีกครั้ง</div><p class="soft" style="font-size:14px">เครื่องนี้ออกจากระบบไปแล้ว อาจเพราะเปลี่ยนรหัสผ่านจากเครื่องอื่น ใส่รหัสผ่านเพื่อซิงก์ต่อ ของที่เรียนในเครื่องนี้ไม่หาย</p>' +
+        passField('rePass', 'รหัสผ่าน') + '<div><button class="btn sm primary" type="submit">เข้าสู่ระบบ</button></div></form>';
+    }
+    if (!isCloud(p)) {
+      html += '<form class="card pad acc-form" id="accUpgrade" style="margin-top:16px"><div class="h3">สร้างบัญชีออนไลน์จากโปรไฟล์นี้</div><p class="soft" style="font-size:14px">ความคืบหน้าของโปรไฟล์นี้จะขึ้นไปอยู่ในบัญชี แล้วเข้าเรียนจากเครื่องไหนก็ได้</p>' +
+        signupFields(false) + '<div><button class="btn sm primary" type="submit">สร้างบัญชี</button></div></form>';
+    }
+    html += '<form class="card pad acc-form" id="accName" style="margin-top:16px"><div class="h3">' + (isCloud(p) ? 'สีโปรไฟล์' : 'ชื่อและสี') + '</div>' +
+      (isCloud(p) ? '' : '<div class="field"><label for="accNm">ชื่อที่ใช้ในเว็บ</label><input class="input" id="accNm" maxlength="20" required value="' + esc(p.name) + '"></div>') +
+      colorPick(p.color || 0) + '<div><button class="btn sm" type="submit">บันทึก</button></div></form>' + pinCard(p);
+    if (isCloud(p) && p.token) {
+      html += '<form class="card pad acc-form" id="accPass" style="margin-top:16px"><div class="h3">เปลี่ยนรหัสผ่าน</div>' +
+        passField('cpOld', 'รหัสผ่านเดิม') + passField('cpNew', 'รหัสผ่านใหม่ อย่างน้อย 6 ตัว', 'new-password') +
+        '<p class="hint">เครื่องอื่นที่เข้าบัญชีนี้ไว้จะต้องเข้าสู่ระบบใหม่</p><div><button class="btn sm" type="submit">เปลี่ยนรหัสผ่าน</button></div></form>';
+    }
+    if (isCloud(p)) {
+      html += '<div class="card pad" style="margin-top:16px"><div class="h3">ออกจากระบบเครื่องนี้</div><p class="soft" style="font-size:14px;margin-top:4px">ลบบัญชีนี้ออกจากรายการในเครื่องนี้ ข้อมูลบนเซิร์ฟเวอร์ยังอยู่ เข้าใหม่ได้ด้วยรหัสผ่าน</p>' +
+        '<div class="row-actions" style="margin-top:16px"><button class="btn sm" id="logout">ออกจากระบบ</button></div></div>';
+      if (p.token) html += '<form class="card pad acc-form" id="accDelete" style="margin-top:16px"><div class="h3">ลบบัญชี</div><p class="soft" style="font-size:14px">ลบบัญชีและความคืบหน้าทั้งหมดออกจากเซิร์ฟเวอร์ ย้อนกลับไม่ได้</p>' +
+        passField('delPass', 'ใส่รหัสผ่านเพื่อยืนยัน') + '<div><button class="btn sm ghost" type="submit">ลบบัญชีถาวร</button></div></form>';
+    } else {
+      html += '<div class="card pad" style="margin-top:16px"><div class="h3">ลบโปรไฟล์</div><p class="soft" style="font-size:14px;margin-top:4px">ลบชื่อและความคืบหน้าของโปรไฟล์นี้ออกจากเครื่องนี้ ย้อนกลับไม่ได้</p>' +
+        '<div class="row-actions" style="margin-top:16px"><button class="btn sm ghost" id="delMe">ลบโปรไฟล์นี้</button></div></div>';
+    }
+    return html + '</div>';
   }
 
   /* ================= settings ================= */
@@ -1000,7 +1162,7 @@
 
   /* ================= events ================= */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#mkCode,#copyCode,#pinOff');
+    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy]');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.hasAttribute('data-say')) {
       e.preventDefault(); speak(t.getAttribute('data-say'));
@@ -1008,34 +1170,30 @@
     if (t.hasAttribute('data-login')) {
       var lp = profile(t.getAttribute('data-login'));
       if (!lp) return;
+      if (isCloud(lp) && !lp.token) { LG = { mode: 'login', user: lp.user }; return route(); }
       if (!lp.pin) return useProfile(lp.id);
-      LG = { mode: 'pin', id: lp.id, err: '' }; return route();
+      LG = { mode: 'pin', id: lp.id }; return route();
     }
-    if (t.hasAttribute('data-lg')) { LG = { mode: t.getAttribute('data-lg'), id: null, err: '' }; return route(); }
-    if (t.hasAttribute('data-lg-go')) { ACC.current = null; accSave(); setGuest(false); LG = { mode: t.getAttribute('data-lg-go'), id: null, err: '' }; KEY = GUEST_KEY; S = load(); return route(); }
-    if (t.id === 'guestGo') { setGuest(true); ACC.current = null; accSave(); KEY = GUEST_KEY; S = load(); toast('เรียนแบบไม่มีบัญชี สร้างโปรไฟล์ทีหลังได้ที่หน้าบัญชี'); return route(); }
-    if (t.id === 'logout') return logout();
-    if (t.id === 'pinOff') { var pp = me(); delete pp.pin; accSave(); toast('เอา PIN ออกแล้ว'); return route(); }
-    if (t.id === 'mkCode') {
-      t.disabled = true;
-      encodeTransfer(transferPayload()).then(function (code) {
-        $('#codeBox').innerHTML = '<textarea class="input code-in" id="codeOut" rows="5" readonly spellcheck="false">' + esc(code) + '</textarea>' +
-          '<div class="row-actions" style="margin-top:12px"><button class="btn sm primary" id="copyCode">' + icon('copy', 'i-sm') + 'คัดลอกรหัส</button><span class="muted num">' + fmt(code.length) + ' ตัวอักษร</span></div>';
-      }).catch(function () { t.disabled = false; toast('สร้างรหัสไม่สำเร็จ'); });
+    if (t.hasAttribute('data-lg')) { LG = { mode: t.getAttribute('data-lg') }; return route(); }
+    if (t.hasAttribute('data-lg-go')) { LG = { mode: t.getAttribute('data-lg-go') }; return signOutView(); }
+    if (t.id === 'guestGo') { setGuest(true); ACC.current = null; accSave(); KEY = GUEST_KEY; S = load(); toast('เรียนแบบไม่มีบัญชี สมัครทีหลังได้ที่หน้าบัญชี'); return route(); }
+    if (t.id === 'switchAcc') { flush(); LG = { mode: 'list' }; return signOutView(); }
+    if (t.id === 'syncNow') { var sp = me(); if (sp) { sp.dirty = true; accSave(); } push().then(function () { return pull(false); }); return; }
+    if (t.id === 'logout') {
+      var op = me(), tok = op.token;
+      var done = function () { if (tok) rpc('ej_logout', { p_token: tok }).catch(function () { /* ignore */ }); forget(op); toast('ออกจากระบบแล้ว'); LG = { mode: null }; signOutView(); };
+      if (op.dirty && op.token) { t.disabled = true; t.textContent = 'กำลังบันทึกก่อนออก…'; push().then(done, done); } else done();
       return;
     }
-    if (t.id === 'copyCode') {
-      var ta = $('#codeOut'), ok = function () { toast('คัดลอกรหัสแล้ว'); };
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(ok, function () { ta.select(); document.execCommand('copy'); ok(); });
-      else { ta.select(); document.execCommand('copy'); ok(); }
+    if (t.id === 'pinOff') { var pp = me(); delete pp.pin; accSave(); toast('เอา PIN ออกแล้ว'); return route(); }
+    if (t.hasAttribute('data-copy')) {
+      var txt = t.getAttribute('data-copy'), ok = function () { toast('คัดลอกแล้ว'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(ok, function () { toast(txt); });
+      else toast(txt);
       return;
     }
     if (t.id === 'delMe') {
-      if (t.dataset.armed) {
-        var dp = me();
-        try { localStorage.removeItem(dataKey(dp.id)); } catch (err) { /* ignore */ }
-        ACC.list = ACC.list.filter(function (x) { return x.id !== dp.id; }); toast('ลบโปรไฟล์ ' + dp.name + ' แล้ว'); return logout();
-      }
+      if (t.dataset.armed) { var dp = me(); forget(dp); toast('ลบโปรไฟล์ ' + dp.name + ' แล้ว'); LG = { mode: null }; return signOutView(); }
       t.dataset.armed = '1'; t.textContent = 'กดอีกครั้งเพื่อลบถาวร'; setTimeout(function () { if (t.isConnected) { delete t.dataset.armed; t.textContent = 'ลบโปรไฟล์นี้'; } }, 4000);
       return;
     }
@@ -1081,7 +1239,7 @@
     if (t.id === 'imp' && t.files[0]) {
       var fr = new FileReader();
       fr.onload = function () {
-        try { var d = JSON.parse(fr.result); if (d.v !== 1) throw 0; localStorage.setItem(KEY, JSON.stringify(d)); S = load(); toast('นำเข้าความคืบหน้าแล้ว'); route(); }
+        try { var d = JSON.parse(fr.result); if (d.v !== 1) throw 0; S = normData(d); save(); toast('นำเข้าความคืบหน้าแล้ว'); route(); }
         catch (err) { toast('ไฟล์ไม่ถูกต้อง'); }
       };
       fr.readAsText(t.files[0]);
@@ -1091,59 +1249,104 @@
     var t = e.target;
     if (t.type === 'range' && t.getAttribute('data-set') === 'rate') { S.settings.rate = +t.value; $('#rateV').textContent = (+t.value).toFixed(2) + '×'; save(); }
   });
+  function val(id) { var el = document.getElementById(id); return el ? el.value : ''; }
+  function colorOf(f, dflt) { var c = $('input[name=color]:checked', f); return c ? +c.value : dflt; }
+  function onNet(f) { return function (err) { console.error(err); formErr(f, 'network'); }; }
   document.addEventListener('submit', function (e) {
     var f = e.target;
+    var ids = ['lgPin', 'lgLogin', 'lgSignup', 'lgRecover', 'accRelogin', 'accUpgrade', 'accName', 'accPin', 'accPass', 'accDelete'];
+    if (ids.indexOf(f.id) < 0) return;
+    e.preventDefault();
+    var p = me();
     if (f.id === 'lgPin') {
-      e.preventDefault();
-      var p = profile(LG.id), pin = $('#pinIn').value.trim();
-      hashPin(pin, p.salt).then(function (h) {
-        if (h === p.pin) return useProfile(p.id);
-        LG.err = 'PIN ไม่ถูกต้อง ลองอีกครั้ง'; route(); var b = $('#lgPin'); if (b) { b.classList.add('shake'); }
+      var pp = profile(LG.id);
+      hashPin(val('pinIn').trim(), pp.salt).then(function (h) {
+        if (h === pp.pin) return useProfile(pp.id);
+        $('#pinIn').value = ''; formErr(f, 'PIN ไม่ถูกต้อง ลองอีกครั้ง');
       });
       return;
     }
-    if (f.id === 'lgNew') {
-      e.preventDefault();
-      var name = $('#nmIn').value.trim().slice(0, 20), pinN = $('#pinNew').value.trim(), color = +($('input[name=color]:checked', f) || { value: 0 }).value;
-      if (!name) return;
-      if (pinN && !/^[0-9]{4,6}$/.test(pinN)) { LG.err = 'PIN ต้องเป็นตัวเลข 4 ถึง 6 หลัก'; return route(); }
-      var np = { id: newId(), name: name, color: color, salt: newId(), created: dayKey() };
-      var mig = $('#migIn') && $('#migIn').checked;
-      (pinN ? hashPin(pinN, np.salt) : Promise.resolve(null)).then(function (h) {
-        if (h) np.pin = h;
-        try {
-          if (mig) { localStorage.setItem(dataKey(np.id), localStorage.getItem(GUEST_KEY)); localStorage.removeItem(GUEST_KEY); }
-        } catch (err) { /* ignore */ }
-        ACC.list.push(np); accSave(); toast('สร้างโปรไฟล์ ' + name + ' แล้ว'); useProfile(np.id);
-      });
+    if (f.id === 'lgLogin') {
+      formBusy(f, true, 'กำลังเข้าสู่ระบบ…');
+      rpc('ej_login', { p_username: val('liUser'), p_password: val('liPass') }).then(function (r) {
+        if (r.error) return formErr(f, r.error);
+        var known = profile('u:' + r.username), local = known ? (function () { try { return JSON.parse(localStorage.getItem(dataKey(known.id))); } catch (x) { return null; } })() : null;
+        var server = normData(r.data);
+        var dirtyLocal = !!(known && known.dirty && local);
+        adoptCloud(r, null, dirtyLocal ? mergeData(local, server) : server, dirtyLocal);
+        toast('ยินดีต้อนรับ ' + r.username);
+      }, onNet(f));
       return;
     }
-    if (f.id === 'lgCode') {
-      e.preventDefault();
-      decodeTransfer($('#codeIn').value).then(function (o) {
-        var q = o.p, old = profile(q.id), np = { id: q.id, name: String(q.name || 'ผู้เรียน').slice(0, 20), color: +q.color || 0, salt: q.salt || newId(), created: q.created || dayKey() };
-        if (q.pin) np.pin = q.pin;
-        localStorage.setItem(dataKey(np.id), JSON.stringify(o.d));
-        if (old) ACC.list[ACC.list.indexOf(old)] = np; else ACC.list.push(np);
-        accSave(); toast('ย้ายโปรไฟล์ ' + np.name + ' มาแล้ว'); useProfile(np.id);
-      }).catch(function () { LG.err = 'รหัสไม่ถูกต้องหรือคัดลอกมาไม่ครบ'; var v = $('#codeIn').value; route(); $('#codeIn').value = v; });
+    if (f.id === 'lgSignup' || f.id === 'accUpgrade') {
+      if (val('suPass') !== val('suPass2')) return formErr(f, 'mismatch');
+      var data;
+      if (f.id === 'accUpgrade') data = S;
+      else if ($('#migIn') && $('#migIn').checked) { try { data = normData(JSON.parse(localStorage.getItem(GUEST_KEY))); } catch (x) { data = defaults(); } }
+      else data = defaults();
+      var color = f.id === 'accUpgrade' ? (p.color || 0) : colorOf(f, 0), oldLocal = f.id === 'accUpgrade' ? p : null, pinMeta = oldLocal && oldLocal.pin ? { pin: oldLocal.pin, salt: oldLocal.salt } : null;
+      formBusy(f, true, 'กำลังสมัคร…');
+      rpc('ej_signup', { p_username: val('suUser'), p_password: val('suPass'), p_data: data }).then(function (r) {
+        if (r.error) return formErr(f, r.error);
+        if (f.id === 'lgSignup' && $('#migIn') && $('#migIn').checked) { try { localStorage.removeItem(GUEST_KEY); } catch (x) { /* ignore */ } }
+        if (oldLocal) forget(oldLocal);
+        var np = adoptCloud(r, color, data, false);
+        if (pinMeta) { np.pin = pinMeta.pin; np.salt = pinMeta.salt; accSave(); }
+        recoverySheet(r.recovery, true);
+      }, onNet(f));
+      return;
+    }
+    if (f.id === 'lgRecover') {
+      formBusy(f, true, 'กำลังตรวจรหัส…');
+      rpc('ej_recover', { p_username: val('rcUser'), p_code: val('rcCode'), p_new: val('rcPass') }).then(function (r) {
+        if (r.error) return formErr(f, r.error === 'bad_login' ? 'bad_recover' : r.error);
+        adoptCloud(r, null, normData(r.data), false);
+        recoverySheet(r.recovery, false);
+      }, onNet(f));
+      return;
+    }
+    if (f.id === 'accRelogin') {
+      formBusy(f, true, 'กำลังเข้าสู่ระบบ…');
+      rpc('ej_login', { p_username: p.user, p_password: val('rePass') }).then(function (r) {
+        if (r.error) return formErr(f, r.error);
+        p.token = r.token; p.base = r.updated_at;
+        S = mergeData(S, r.data); p.dirty = true; storeLocal(); accSave();
+        toast('เข้าสู่ระบบแล้ว'); route(); push();
+      }, onNet(f));
       return;
     }
     if (f.id === 'accName') {
-      e.preventDefault();
-      var ap = me(), nm = $('#accNm').value.trim().slice(0, 20);
-      if (!nm) return;
-      ap.name = nm; ap.color = +($('input[name=color]:checked', f) || { value: ap.color }).value; accSave(); toast('บันทึกแล้ว'); return route();
+      if (!isCloud(p)) { var nm = val('accNm').trim().slice(0, 20); if (!nm) return; p.name = nm; }
+      p.color = colorOf(f, p.color || 0); accSave(); toast('บันทึกแล้ว'); return route();
     }
     if (f.id === 'accPin') {
-      e.preventDefault();
-      var bp = me(), np2 = $('#accPinIn').value.trim();
-      if (!/^[0-9]{4,6}$/.test(np2)) { toast('PIN ต้องเป็นตัวเลข 4 ถึง 6 หลัก'); return; }
-      if (!bp.salt) bp.salt = newId();
-      hashPin(np2, bp.salt).then(function (h) { bp.pin = h; accSave(); toast('ตั้ง PIN แล้ว'); route(); });
+      var np2 = val('accPinIn').trim();
+      if (!/^[0-9]{4,6}$/.test(np2)) return formErr(f, 'PIN ต้องเป็นตัวเลข 4 ถึง 6 หลัก');
+      if (!p.salt) p.salt = newId();
+      hashPin(np2, p.salt).then(function (h) { p.pin = h; accSave(); toast('ตั้ง PIN แล้ว'); route(); });
       return;
     }
+    if (f.id === 'accPass') {
+      formBusy(f, true, 'กำลังเปลี่ยน…');
+      rpc('ej_change_password', { p_token: p.token, p_old: val('cpOld'), p_new: val('cpNew') }).then(function (r) {
+        if (r.error === 'bad_login') return formErr(f, 'รหัสผ่านเดิมไม่ถูกต้อง');
+        if (r.error) return formErr(f, r.error);
+        toast('เปลี่ยนรหัสผ่านแล้ว'); route();
+      }, onNet(f));
+      return;
+    }
+    if (f.id === 'accDelete') {
+      formBusy(f, true, 'กำลังลบ…');
+      rpc('ej_delete', { p_token: p.token, p_password: val('delPass') }).then(function (r) {
+        if (r.error === 'bad_login') return formErr(f, 'รหัสผ่านไม่ถูกต้อง');
+        if (r.error) return formErr(f, r.error);
+        forget(p); toast('ลบบัญชี ' + p.name + ' แล้ว'); LG = { mode: null }; signOutView();
+      }, onNet(f));
+    }
   });
+  window.addEventListener('online', function () { push(); });
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') flush(); else pull(true); });
+  window.addEventListener('pagehide', flush);
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'qtype' || !Q) return;
     e.preventDefault();

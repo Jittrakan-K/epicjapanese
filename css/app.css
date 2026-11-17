@@ -703,3 +703,8 @@ body.gated .main { padding-bottom: var(--space-2xl); }
 @media (prefers-reduced-motion: reduce) { .shake { animation: none; } .who-btn:hover .ava { transform: none; } }
 .acc-head .grow { flex: 1; min-width: 0; }
 .code-in { width: 100%; }
+.hint { margin-top: calc(var(--space-xs) * -1); font-size: var(--text-xs); color: var(--color-muted); }
+.sync { font-size: var(--text-sm); color: var(--color-ink-2); }
+.sync-error, .sync-signedout { color: var(--color-error); font-weight: 700; }
+.sync-offline { color: var(--color-muted); }
+.recovery { margin-top: var(--space-md); padding: var(--space-md); border-radius: var(--radius-tile); background: var(--color-accent-2); color: var(--color-ink); box-shadow: var(--shadow-tile); text-align: center; font: var(--display-weight) var(--text-xl)/1.2 var(--font-display); letter-spacing: 0.06em; font-synthesis: none; user-select: all; overflow-wrap: anywhere; }
