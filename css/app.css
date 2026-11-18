@@ -43,12 +43,9 @@ ruby rt { font-size: 0.5em; color: var(--color-muted); font-family: var(--font-o
 }
 .brand { display: flex; align-items: center; gap: var(--space-sm); min-height: 44px; padding: 0 var(--space-xs); }
 .brand-name { white-space: nowrap; font: var(--display-weight) var(--text-lg)/1 var(--font-display); font-synthesis: none; letter-spacing: var(--tracking-display); }
-.seal {
-  width: 36px; height: 36px; display: grid; place-items: center; flex: none;
-  background: var(--color-accent); color: var(--color-accent-ink);
-  border: var(--diecut-s) solid var(--color-white); border-radius: var(--radius-pill); box-shadow: var(--shadow-tile);
-  font: 400 16px/1 var(--font-outlier); rotate: -6deg;
-}
+.logo { width: 40px; height: 40px; flex: none; display: block; transition: transform var(--dur-short) var(--ease-out); }
+.brand:hover .logo { transform: translateY(-2px) rotate(-4deg); }
+@media (prefers-reduced-motion: reduce) { .brand:hover .logo { transform: none; } }
 
 .side-search {
   margin: clamp(8px, 2.4dvh, 24px) 0 clamp(4px, 1.6dvh, 16px); height: clamp(32px, 4.6dvh, 40px); padding: 0 var(--space-xs) 0 var(--space-sm);

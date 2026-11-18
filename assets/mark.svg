@@ -1,1 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="34" cy="35" r="28" fill="#2b2622"/><circle cx="31" cy="31" r="28" fill="#fffdfa"/><circle cx="31" cy="31" r="23" fill="#d6176f"/><text x="31" y="42" font-size="28" text-anchor="middle" fill="#fffdfa" font-family="'Klee One','Hiragino Mincho ProN','Yu Mincho',serif" font-weight="600">学</text></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Japanese">
+  <g stroke-linejoin="round" stroke-width="3">
+    <circle cx="45" cy="19" r="10" fill="#c9e84f" stroke="#c9e84f"/>
+    <path d="M27 10 L4 55 L32 55 Z" fill="#9e0f4f" stroke="#9e0f4f"/>
+    <path d="M27 10 L59 55 L21 55 Z" fill="#e0197a" stroke="#e0197a"/>
+    <path d="M27 10 L21 55 L32 55 Z" fill="#6e0a37" stroke="#6e0a37"/>
+    <path d="M27 10 L20.6 22.5 L24 20.6 L26.4 24 L29.4 20.6 L32.4 23.4 L35.9 22.2 Z" fill="#fffdfa" stroke="#fffdfa" stroke-width="1.5"/>
+  </g>
+</svg>
