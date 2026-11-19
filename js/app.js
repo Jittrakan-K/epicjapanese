@@ -1,4 +1,4 @@
-/* Epic Japanese — แอปหน้าเดียว ไม่ต้อง build เปิดจากไฟล์หรือ GitHub Pages ได้ทันที
+/* Nihongo Line — แอปหน้าเดียว ไม่ต้อง build เปิดจากไฟล์หรือ GitHub Pages ได้ทันที
    ความคืบหน้าเก็บใน localStorage ของเบราว์เซอร์ */
 (function () {
   'use strict';
@@ -583,7 +583,7 @@
 
         '<div class="split">' +
           '<div class="ticket">' +
-            '<div class="ticket-top"><span class="jp">乗車券</span><span>ตั๋วเรียน Japanese</span></div>' +
+            '<div class="ticket-top"><span class="jp">乗車券</span><span>ตั๋วเรียน Nihongo Line</span></div>' +
             '<div class="ticket-route"><div class="stn">ゼロ<small>เริ่มจากศูนย์</small></div><div class="arrow" aria-hidden="true"></div><div class="stn">N1<small>สถานีปลายทาง</small></div></div>' +
             '<div class="ticket-now">ตอนนี้อยู่ ' + where + '</div>' +
             '<div class="ticket-stamps">' + stamps + '</div>' +
@@ -1201,7 +1201,7 @@
           (mig ? '<label class="toggle"><input type="checkbox" id="migIn" checked>เอาความคืบหน้าที่เรียนไว้ในเครื่องนี้เข้าบัญชีด้วย</label>' : '') +
           '<button class="btn primary" type="submit">สมัครบัญชี</button></form>' + gateLinks(m);
     }
-    return { html: '<div class="gate"><div class="gate-head"><img class="logo" src="assets/mark.svg?v=13" alt="" width="40" height="40"><span class="brand-name">Japanese</span></div>' + body + '</div>',
+    return { html: '<div class="gate"><div class="gate-head"><img class="logo" src="assets/mark.svg?v=14" alt="" width="40" height="40"><span class="brand-name">Nihongo Line</span></div>' + body + '</div>',
       mount: function () { var f = $('.gate input:not([type=radio]):not([type=checkbox]):placeholder-shown, .gate input[type=password]') || $('.gate input:not([type=radio]):not([type=checkbox])'); if (f && m !== 'list') f.focus(); } };
   }
 
