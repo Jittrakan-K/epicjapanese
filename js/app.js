@@ -95,6 +95,36 @@
     add({ id: lv.id + '-exam', kind: 'exam', title: 'สอบท้าย' + lv.title, jp: '試験' });
   });
 
+
+  /* ================= bank: คลังคำศัพท์และคันจิ JLPT (data/bank.js) ================= */
+  var BANK = window.EJ_BANK || { words: {}, kanji: [] }, BLV = ['n5', 'n4', 'n3', 'n2', 'n1'];
+  var LVID = {}; LEVELS.forEach(function (l) { LVID[l.id] = l; });
+  var BW = {}, BK = {}, BW_ALL = [], BK_ALL = [];
+  var BANK_W = { title: 'คลังคำศัพท์' }, BANK_K = { title: 'คลังคันจิ' };
+  BLV.forEach(function (lid) {
+    var lv = LVID[lid]; BW[lid] = []; BK[lid] = [];
+    (BANK.words[lid] || []).forEach(function (r) {
+      var id = 'v:' + r[0] + '|' + r[1], c = CARD[id];
+      if (!c) { c = { id: id, type: 'v', w: r[0], r: r[1], m: r[2] || r[3], en: !r[2], level: lv, lesson: BANK_W, bank: true }; CARD[id] = c; }
+      c.gloss = r[3]; c.blv = lv;
+      BW[lid].push(c); BW_ALL.push(c);
+    });
+  });
+  BANK.kanji.forEach(function (r) {
+    var lid = 'n' + r[1], lv = LVID[lid], id = 'k:' + r[0], c = CARD[id];
+    if (!lv) return;
+    if (!c) {
+      c = { id: id, type: 'k', k: r[0], on: r[3], kun: r[4], m: r[5] || r[6], en: !r[5], exw: r[7], exr: r[8], exm: r[9], level: lv, lesson: BANK_K, bank: true };
+      CARD[id] = c;
+    }
+    c.strokes = r[2]; c.gloss = r[6]; c.blv = lv; c.bon = r[3]; c.bkun = r[4];
+    BK[lid].push(c); BK_ALL.push(c);
+  });
+  var SET_N = 20;
+  function setsOf(list) { var o = []; for (var i = 0; i < list.length; i += SET_N) o.push(list.slice(i, i + SET_N)); return o; }
+  function meanHTML(c) { return esc(c.m) + (c.en ? ' <span class="en-tag" title="ยังไม่มีคำแปลไทย">EN</span>' : ''); }
+  function wordRoma(c) { if (c.ro === undefined) c.ro = romaji(c.r).replace(/[\s']/g, ''); return c.ro; }
+
   /* ================= accounts =================
      บัญชีออนไลน์: ชื่อผู้ใช้ + รหัสผ่าน ไม่ใช้อีเมล เก็บที่ Firebase (Auth + Firestore) ผ่าน REST
      เครื่องที่เคยเข้าแล้วจำบัญชีไว้ในรายการ ACC พร้อมโทเค็น ความคืบหน้าเก็บในเครื่องก่อนแล้วซิงก์ตามไป
@@ -321,6 +351,7 @@
     });
     Object.keys(y.days).forEach(function (k) { o.days[k] = Math.max(o.days[k] || 0, y.days[k] || 0); });
     Object.keys(y.stats).forEach(function (k) { o.stats[k] = Math.max(o.stats[k] || 0, y.stats[k] || 0); });
+    Object.keys(y.drill || {}).forEach(function (k) { o.drill[k] = Math.max(o.drill[k] || 0, y.drill[k] || 0); });
     if (y.created && (!o.created || y.created < o.created)) o.created = y.created;
     return o;
   }
@@ -414,7 +445,7 @@
   var KEY = dataKey(me() ? ACC.current : null);
   var LG = { mode: null, id: null, err: '' };
   function defaults() {
-    return { v: 1, created: dayKey(), done: {}, srs: {}, days: {}, stats: { answered: 0, correct: 0, written: 0, reviews: 0 },
+    return { v: 1, created: dayKey(), done: {}, srs: {}, days: {}, stats: { answered: 0, correct: 0, written: 0, reviews: 0 }, drill: {},
       settings: { goal: 30, rate: 0.9, romaji: true, furigana: true, voice: '' } };
   }
   function normData(s) {
@@ -532,6 +563,13 @@
       case 'read': r = SID[parts[1] + '-read'] ? viewReading(SID[parts[1] + '-read']) : viewMissing(); setNav('map'); break;
       case 'quiz': r = SID[parts[1]] ? viewQuiz(SID[parts[1]]) : viewMissing(); setNav('map'); break;
       case 'review': r = viewReview(); setNav('review'); break;
+      case 'words': r = viewWords(parts[1]); setNav('words'); break;
+      case 'practice':
+        if (parts[1] === 'kana' && parts[2]) r = viewPracticeQuiz('kana', parts[2]);
+        else if ((parts[1] === 'w' || parts[1] === 'k') && parts[3] && parts[4]) r = viewPracticeQuiz(parts[1], parts[2], parts[3], parts[4]);
+        else if ((parts[1] === 'w' || parts[1] === 'k') && parts[3]) r = viewSet(parts[1], parts[2], +parts[3]);
+        else r = viewPractice(parts[1], parts[2]);
+        setNav('practice'); break;
       case 'kana': r = viewKana(parts[1] || 'hira'); setNav('kana'); break;
       case 'drill': r = viewDrill(parts[1] || 'hira'); setNav('kana'); break;
       case 'kanji': r = viewKanji(parts[1]); setNav('kanji'); break;
@@ -776,9 +814,10 @@
     var c = CARD['k:' + ch]; if (!c) return;
     openSheet('<div class="sheet-head"><span class="where">' + lvChip(c.level) + '<span>' + esc(c.lesson.title) + '</span></span><button class="icon-btn" data-close aria-label="ปิด">' + icon('x') + '</button></div>' +
       '<div class="kdetail"><div class="kbox">' + esc(c.k) + '</div><div>' +
-        '<div class="h2">' + esc(c.m) + '</div>' +
-        '<dl class="dl" style="margin-top:16px"><dt>อง</dt><dd class="jp">' + esc(c.on) + '</dd><dt>คุน</dt><dd class="jp">' + esc(c.kun) + '</dd><dt>ตัวอย่าง</dt><dd><span class="jp" style="font-size:18px">' + furi(c.exw, c.exr) + '</span> <span class="muted">' + esc(c.exm) + '</span></dd></dl>' +
-        '<div class="row-actions" style="margin-top:20px">' + sayBtn(c.exr, 'ฟังคำตัวอย่าง') +
+        '<div class="h2">' + meanHTML(c) + '</div>' + (c.gloss && !c.en ? '<div class="muted" style="font-size:13px">' + esc(c.gloss) + '</div>' : '') +
+        '<dl class="dl" style="margin-top:16px"><dt>อง</dt><dd class="jp">' + esc(c.on || '–') + '</dd><dt>คุน</dt><dd class="jp">' + esc(c.kun || '–') + '</dd>' + (c.strokes ? '<dt>จำนวนขีด</dt><dd class="num">' + c.strokes + '</dd>' : '') +
+          (c.exw ? '<dt>ตัวอย่าง</dt><dd><span class="jp" style="font-size:18px">' + furi(c.exw, c.exr) + '</span> <span class="muted">' + esc(c.exm) + '</span></dd>' : '') + '</dl>' +
+        '<div class="row-actions" style="margin-top:20px">' + (c.exr ? sayBtn(c.exr, 'ฟังคำตัวอย่าง') : '') +
           '<a class="btn sm" href="#/write/kanji/' + encodeURIComponent(c.k) + '">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a>' +
           (S.srs[c.id] ? '<span class="tag">อยู่ในกองทบทวน</span>' : '<button class="btn sm" data-add-card="' + esc(c.id) + '">' + icon('plus', 'i-sm') + 'เพิ่มเข้ากองทบทวน</button>') +
         '</div></div></div>');
@@ -866,14 +905,17 @@
     Q.locked = false;
     var opts = q.type === 'choice'
       ? '<div class="qopts" id="qopts">' + q.opts.map(function (o, i) { return '<button class="qopt" data-opt="' + i + '"><span class="key">' + (i + 1) + '</span><span>' + o.html + '</span></button>'; }).join('') + '</div>'
-      : '<form class="qtype" id="qtype" autocomplete="off"><input class="input" id="qin" placeholder="เช่น ka" autocapitalize="off" spellcheck="false" aria-label="คำตอบ"><button class="btn primary lg">ตรวจ</button></form>';
+      : '<form class="qtype" id="qtype" autocomplete="off"><input class="input" id="qin" placeholder="' + esc(q.ph || 'เช่น ka') + '" autocapitalize="off" spellcheck="false" aria-label="คำตอบ"><button class="btn primary lg">ตรวจ</button></form>';
     box.innerHTML =
       '<div class="quiz-top" style="margin-top:20px"><div class="bar"><i style="transform:scaleX(' + (Q.i / n) + ')"></i></div><span class="num muted" style="font-size:12px">' + (Q.i + 1) + ' / ' + n + '</span></div>' +
       '<div class="card qcard"><div class="qkind">' + esc(q.kind) + '</div>' +
-        '<div class="qprompt ' + (q.pcls === 'th' ? 'th' : q.pcls === 'hand' ? 'hand' : q.pcls === 'sentence' ? 'sentence' : '') + '">' + esc(q.prompt) + '</div>' +
-        (q.say && q.pcls !== 'th' ? '<div>' + sayBtn(q.say) + '</div>' : '') +
+        (q.listen ? '<div class="qlisten"><button class="btn lg" data-say="' + esc(q.say) + '">' + icon('sound') + 'ฟังอีกครั้ง</button></div>'
+          : '<div class="qprompt ' + (q.pcls === 'th' ? 'th' : q.pcls === 'hand' ? 'hand' : q.pcls === 'sentence' ? 'sentence' : '') + '">' + esc(q.prompt) + '</div>' +
+            (q.sub ? '<div class="qsub">' + esc(q.sub) + '</div>' : '') +
+            (q.say && q.pcls !== 'th' ? '<div>' + sayBtn(q.say) + '</div>' : '')) +
         opts + '<div class="qfeed" id="qfeed"></div></div>';
     var inp = $('#qin'); if (inp) inp.focus();
+    if (q.listen) setTimeout(function () { speak(q.say); }, 150);
   }
   function answerQ(correct, shown) {
     if (!Q || Q.locked) return; Q.locked = true;
@@ -887,11 +929,12 @@
     save();
     if (q.say && q.pcls !== 'th' && correct) speak(q.say);
     var last = Q.i === Q.qs.length - 1;
-    $('#qfeed').innerHTML = '<div class="msg ' + (correct ? 'ok' : 'bad') + '"><b>' + (correct ? 'ถูกต้อง' : 'ยังไม่ใช่') + '</b>' + (correct ? '' : ' คำตอบคือ <span class="jp">' + esc(q.answer) + '</span>') + '</div>' +
+    $('#qfeed').innerHTML = '<div class="msg ' + (correct ? 'ok' : 'bad') + '"><b>' + (correct ? 'ถูกต้อง' : 'ยังไม่ใช่') + '</b>' + (correct ? '' : ' คำตอบคือ <span class="jp">' + esc(q.answer) + '</span>') + (q.reveal ? '<div class="soft jp" style="margin-top:4px">' + esc(q.reveal) + '</div>' : '') + '</div>' +
       '<button class="btn primary" id="qnext">' + (last ? 'ดูผล' : 'ข้อต่อไป') + ' <span class="key key-inv">↵</span></button>';
     $('#qnext').focus();
   }
   function renderResult() {
+    if (Q.practice) return practiceResult();
     var st = Q.st, n = Q.qs.length, sc = Q.right / n, pass = sc >= 0.8, nx = nextOf(st), pct = Math.round(sc * 100);
     var first = !isDone(st.id), added = 0;
     if (pass) {
@@ -943,19 +986,19 @@
     }
     var id = R.ids[R.i], c = CARD[id], s = S.srs[id], f = cardFront(c), ro = S.settings.romaji;
     var back = c.type === 'k'
-      ? '<div class="me">' + esc(c.m) + '</div><div class="rd">' + esc(c.on) + '</div><div class="rd">' + esc(c.kun) + '</div><div class="ex"><span class="jp">' + esc(c.exw) + '（' + esc(c.exr) + '）</span> ' + esc(c.exm) + '</div>'
-      : '<div class="rd">' + esc(c.r) + '</div>' + (ro ? '<div class="ro">' + esc(romaji(c.r)) + '</div>' : '') + '<div class="me">' + esc(c.m) + '</div>';
+      ? '<div class="me">' + meanHTML(c) + '</div><div class="rd">' + esc(c.on) + '</div><div class="rd">' + esc(c.kun) + '</div>' + (c.exw ? '<div class="ex"><span class="jp">' + esc(c.exw) + '（' + esc(c.exr) + '）</span> ' + esc(c.exm) + '</div>' : '')
+      : '<div class="rd">' + esc(c.r) + '</div>' + (ro ? '<div class="ro">' + esc(romaji(c.r)) + '</div>' : '') + '<div class="me">' + meanHTML(c) + '</div>';
     box.innerHTML =
       '<div class="quiz-top" style="margin-top:24px"><div class="bar"><i style="transform:scaleX(' + (R.done / Math.max(1, R.n)) + ')"></i></div><span class="num muted" style="font-size:12px">เหลือ ' + (R.ids.length - R.i) + '</span></div>' +
       '<div class="card flash' + (R.flipped ? ' flipped' : '') + '" id="flash" role="button" tabindex="0" aria-label="พลิกการ์ด"><div class="front' + (f.length > 3 ? ' long' : '') + '">' + esc(f) + '</div>' +
-        (R.flipped ? '<div class="back">' + back + '<div style="margin-top:8px">' + sayBtn(c.type === 'k' ? c.exr : c.r) + '</div></div>'
+        (R.flipped ? '<div class="back">' + back + '<div style="margin-top:8px">' + sayBtn(c.type === 'k' ? (c.exr || c.k) : c.r) + '</div></div>'
           : '<div class="hint">แตะการ์ดหรือกด <kbd>Space</kbd> เพื่อดูคำตอบ</div>') +
         '<div class="hint where">' + lvChip(c.level) + '<span>' + esc(c.lesson.title) + '</span></div>' +
       '</div>' +
       (R.flipped ? '<div class="grades">' + [[1, 'ลืม', 'again'], [2, 'ยาก', ''], [3, 'จำได้', ''], [4, 'ง่าย', '']].map(function (g) {
         return '<button class="btn ' + g[2] + '" data-grade="' + g[0] + '">' + g[1] + '<small>' + ivlLabel(s, g[0]) + '</small></button>';
       }).join('') + '</div>' : '');
-    if (R.flipped) speak(c.type === 'k' ? c.exr : c.r);
+    if (R.flipped) speak(c.type === 'k' ? (c.exr || c.k) : c.r);
   }
   function grade(g) {
     if (!R || !R.flipped) return;
@@ -1012,16 +1055,15 @@
     }).join('') + '</div>';
   }
   function viewKanji(lid) {
-    var counts = {}; KANJI.forEach(function (k) { counts[k.level.id] = (counts[k.level.id] || 0) + 1; });
-    var learned = KANJI.filter(function (k) { return S.srs[k.id]; }).length;
-    var groups = LEVELS.filter(function (l) { return counts[l.id] && (!lid || l.id === lid); });
+    lid = BK[lid] ? lid : 'n5';
+    var counts = {}; BLV.forEach(function (l) { counts[l] = BK[l].length; });
+    var learned = BK_ALL.filter(function (k) { return S.srs[k.id]; }).length;
     return '<div class="page"><h1 class="title">คันจิ</h1>' +
-      '<p class="lead">ชุดเริ่มต้น ' + KANJI.length + ' ตัวที่ผูกกับบทเรียน อยู่ในกองทบทวนแล้ว ' + learned + ' ตัว</p>' +
-      '<div style="margin-top:24px">' + levelFilter('kanji', lid, counts) + '</div>' +
-      groups.map(function (lv) {
-        return '<section class="section"><div class="section-head"><h2 class="h2 with-chip">' + lvChip(lv) + esc(lv.title) + '</h2><span class="muted num">' + counts[lv.id] + '</span></div>' +
-          kanjiTiles(KANJI.filter(function (k) { return k.level === lv; })) + '</section>';
-      }).join('') + '</div>';
+      '<p class="lead">คันจิ JLPT ' + fmt(BK_ALL.length) + ' ตัว อยู่ในกองทบทวนแล้ว ' + fmt(learned) + ' ตัว แตะตัวคันจิเพื่อดูคำอ่านและคำตัวอย่าง</p>' +
+      '<div class="row-actions" style="margin-top:24px">' + lvSeg('kanji', lid, counts) +
+        '<a class="btn sm" href="#/practice/k/' + lid + '">' + icon('target', 'i-sm') + 'ฝึก ' + esc(LVID[lid].code) + ' เป็นชุด</a></div>' +
+      (lid !== 'n5' && lid !== 'n4' ? '<p class="hint-line">ความหมายที่มีป้าย <span class="en-tag">EN</span> ยังเป็นภาษาอังกฤษ กำลังทยอยแปลเป็นไทย</p>' : '') +
+      '<section class="section">' + kanjiTiles(BK[lid]) + '</section></div>';
   }
   function viewGrammar(lid) {
     var counts = {}; GRAMMAR.forEach(function (g) { counts[g.level.id] = (counts[g.level.id] || 0) + 1; });
@@ -1036,19 +1078,21 @@
   function searchResults(q) {
     q = q.trim().toLowerCase(); if (!q) return '<div class="card empty"><p>พิมพ์คำไทย ญี่ปุ่น หรือโรมาจิ เช่น "กิน" "たべる" "taberu"</p></div>';
     var hq = toHira(q);
-    var v = VOCAB.filter(function (x) { return x.w.indexOf(q) > -1 || x.r.indexOf(hq) > -1 || x.m.toLowerCase().indexOf(q) > -1 || romaji(x.r).replace(/\s/g, '').indexOf(q.replace(/\s/g, '')) > -1; }).slice(0, 40);
-    var k = KANJI.filter(function (x) { return x.k === q || x.m.indexOf(q) > -1 || x.on.indexOf(EJ.kana.toKata(hq)) > -1 || x.kun.indexOf(hq) > -1; }).slice(0, 24);
+    var v = VOCAB.filter(function (x) { return x.w.indexOf(q) > -1 || x.r.indexOf(hq) > -1 || x.m.toLowerCase().indexOf(q) > -1 || romaji(x.r).replace(/\s/g, '').indexOf(q.replace(/\s/g, '')) > -1; });
+    var seenV = {}; v.forEach(function (x) { seenV[x.id] = 1; });
+    v = v.concat((wordMatches(q) || []).filter(function (x) { return !seenV[x.id]; })).slice(0, 40);
+    var k = BK_ALL.concat(KANJI.filter(function (x) { return !x.blv; })).filter(function (x) { return x.k === q || x.m.indexOf(q) > -1 || x.on.indexOf(EJ.kana.toKata(hq)) > -1 || x.kun.indexOf(hq) > -1; }).slice(0, 24);
     var g = GRAMMAR.filter(function (x) { return x.p.indexOf(q) > -1 || x.m.indexOf(q) > -1 || x.ex.indexOf(q) > -1; }).slice(0, 20);
     if (!v.length && !k.length && !g.length) return '<div class="card empty"><div class="h2">ไม่พบ "' + esc(q) + '"</div><p>ลองคำสั้นลง หรือพิมพ์เป็นคานะ</p></div>';
     return (v.length ? '<section class="section" style="margin-top:24px"><div class="section-head"><h2 class="h2">คำศัพท์</h2><span class="muted num">' + v.length + '</span></div><div class="card vlist">' + v.map(function (x) {
-      return '<div class="vrow"><span class="w">' + furi(x.w, x.r) + '</span><span class="ro">' + esc(romaji(x.r)) + '</span><span class="me">' + esc(x.m) + ' <a class="muted num" style="font-size:11px" href="#/lesson/' + x.lesson.id + '/vocab">' + esc(SID[x.lesson.id].code) + '</a></span>' + sayBtn(x.r) + '</div>';
+      return '<div class="vrow"><span class="w">' + furi(x.w, x.r) + '</span><span class="ro">' + esc(romaji(x.r)) + '</span><span class="me">' + meanHTML(x) + ' ' + (x.lesson.id && SID[x.lesson.id] ? '<a class="muted num" style="font-size:11px" href="#/lesson/' + x.lesson.id + '/vocab">' + esc(SID[x.lesson.id].code) + '</a>' : lvChip(x.blv || x.level)) + '</span>' + sayBtn(x.r) + '</div>';
     }).join('') + '</div></section>' : '') +
       (k.length ? '<section class="section"><div class="section-head"><h2 class="h2">คันจิ</h2><span class="muted num">' + k.length + '</span></div>' + kanjiTiles(k) + '</section>' : '') +
       (g.length ? '<section class="section"><div class="section-head"><h2 class="h2">ไวยากรณ์</h2><span class="muted num">' + g.length + '</span></div>' + g.map(function (x) { return grammarCard(x, true); }).join('') + '</section>' : '');
   }
   function viewSearch(q) {
     return {
-      html: '<div class="page page-narrow"><h1 class="title">ค้นหาในบทเรียน</h1>' +
+      html: '<div class="page page-narrow"><h1 class="title">ค้นหา</h1>' +
         '<input class="input" id="pageSearch" type="search" placeholder="คำไทย ญี่ปุ่น หรือโรมาจิ" value="' + esc(q) + '" style="width:100%;margin-top:20px;height:48px;font-size:16px" autocomplete="off">' +
         '<div id="searchOut" style="margin-top:16px">' + searchResults(q) + '</div></div>',
       mount: function () {
@@ -1142,6 +1186,226 @@
         return '<div class="lp-row" style="' + lvVars(lv) + '"><span>' + esc(lv.title) + '</span><div class="bar"><i style="transform:scaleX(' + (c / n) + ')"></i></div><span class="num">' + c + ' / ' + n + '</span></div>';
       }).join('') + '</div></div>';
     return html;
+  }
+
+  /* ================= word bank ================= */
+  var WB = null;
+  function lvSeg(base, cur, counts) {
+    return '<div class="seg" style="flex-wrap:wrap">' + BLV.map(function (id) {
+      return '<button data-go="#/' + base + '/' + id + '" class="' + (cur === id ? 'on' : '') + '">' + esc(LVID[id].code) + (counts ? ' <span class="num seg-n">' + fmt(counts[id]) + '</span>' : '') + '</button>';
+    }).join('') + '</div>';
+  }
+  function addBtn(c) {
+    return S.srs[c.id] ? '<span class="icon-btn in-srs" title="อยู่ในกองทบทวนแล้ว" aria-label="อยู่ในกองทบทวนแล้ว">' + icon('check') + '</span>'
+      : '<button class="icon-btn" data-add-word="' + esc(c.id) + '" aria-label="เพิ่มเข้ากองทบทวน" title="เพิ่มเข้ากองทบทวน">' + icon('plus') + '</button>';
+  }
+  function wordRow(c, showLv) {
+    var ro = S.settings.romaji;
+    return '<div class="vrow bank"><span class="w">' + furi(c.w, c.r) + '</span><span class="ro">' + (ro ? esc(romaji(c.r)) : esc(c.r)) + '</span>' +
+      '<span class="me">' + (showLv ? lvChip(c.blv || c.level) + ' ' : '') + meanHTML(c) + '</span><span class="vacts">' + sayBtn(c.r) + addBtn(c) + '</span></div>';
+  }
+  function wordMatches(q) {
+    q = q.trim().toLowerCase(); if (!q) return null;
+    var hq = toHira(q), rq = q.replace(/[\s']/g, ''), ascii = /^[a-z][a-z\s'-]*$/.test(q);
+    var enRe = ascii ? new RegExp('(^|[^a-z])' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : null;
+    return BW_ALL.filter(function (c) {
+      if (ascii) return enRe.test(c.gloss ? c.gloss.toLowerCase() : c.m.toLowerCase()) || wordRoma(c).indexOf(rq) === 0;
+      return c.w.indexOf(q) > -1 || c.r.indexOf(hq) > -1 || c.m.toLowerCase().indexOf(q) > -1;
+    });
+  }
+  function renderWordList() {
+    if (!WB) return;
+    var list = WB.q ? wordMatches(WB.q) : BW[WB.lid];
+    if (WB.todo) list = list.filter(function (c) { return !S.srs[c.id]; });
+    var box = $('#wlist'); if (!box) return;
+    var shown = list.slice(0, WB.limit);
+    $('#wcount').textContent = WB.q ? 'พบ ' + fmt(list.length) + ' คำ' : fmt(list.length) + ' คำ';
+    box.innerHTML = list.length
+      ? '<div class="card vlist">' + shown.map(function (c) { return wordRow(c, !!WB.q); }).join('') + '</div>' +
+        (list.length > shown.length ? '<div class="row-actions" style="justify-content:center;margin-top:16px"><button class="btn" id="wmore">แสดงเพิ่มอีก ' + Math.min(100, list.length - shown.length) + ' คำ <span class="muted num">(เหลือ ' + fmt(list.length - shown.length) + ')</span></button></div>' : '')
+      : '<div class="card empty"><div class="h2">' + (WB.q ? 'ไม่พบ "' + esc(WB.q) + '"' : 'เพิ่มครบทุกคำแล้ว') + '</div><p>' + (WB.q ? 'ลองพิมพ์เป็นคานะ โรมาจิ หรือคำไทยสั้นๆ' : 'ทุกคำในระดับนี้อยู่ในกองทบทวนแล้ว') + '</p></div>';
+  }
+  function viewWords(lid) {
+    lid = BW[lid] ? lid : 'n5';
+    var counts = {}; BLV.forEach(function (l) { counts[l] = BW[l].length; });
+    var inSrs = BW_ALL.filter(function (c) { return S.srs[c.id]; }).length;
+    WB = { lid: lid, q: '', limit: 100, todo: false };
+    return {
+      html: '<div class="page"><h1 class="title">คลังคำศัพท์</h1>' +
+        '<p class="lead">คำศัพท์ JLPT ' + fmt(BW_ALL.length) + ' คำ อยู่ในกองทบทวนแล้ว ' + fmt(inSrs) + ' คำ</p>' +
+        '<div class="row-actions" style="margin-top:24px">' + lvSeg('words', lid, counts) +
+          '<a class="btn sm" href="#/practice/w/' + lid + '">' + icon('target', 'i-sm') + 'ฝึก ' + esc(LVID[lid].code) + ' เป็นชุด</a></div>' +
+        '<div class="wtools"><input class="input" id="wq" type="search" placeholder="ค้นทุกระดับ: คำไทย อังกฤษ ญี่ปุ่น หรือโรมาจิ" autocomplete="off">' +
+          '<label class="toggle"><input type="checkbox" id="wtodo">เฉพาะคำที่ยังไม่ได้เพิ่ม</label><span class="muted num" id="wcount"></span></div>' +
+        (lid !== 'n5' && lid !== 'n4' ? '<p class="hint-line">คำที่มีป้าย <span class="en-tag">EN</span> ยังเป็นคำแปลภาษาอังกฤษ กำลังทยอยแปลเป็นไทย</p>' : '') +
+        '<div id="wlist" style="margin-top:16px"></div></div>',
+      mount: function () {
+        renderWordList();
+        var inp = $('#wq'), t = 0;
+        inp.addEventListener('input', function () { clearTimeout(t); t = setTimeout(function () { WB.q = inp.value; WB.limit = 100; renderWordList(); }, 160); });
+        $('#wtodo').addEventListener('change', function (e) { WB.todo = e.target.checked; WB.limit = 100; renderWordList(); });
+      },
+      destroy: function () { WB = null; }
+    };
+  }
+
+  /* ================= practice: แบบฝึกหัด ================= */
+  var KANA_DRILLS = [
+    { key: 'h-basic', title: 'ฮิรางานะ เสียงพื้นฐาน', jp: 'あいうえお', set: 'hira', groups: ['basic'] },
+    { key: 'h-voiced', title: 'ฮิรางานะ เสียงขุ่นและเสียงควบ', jp: 'がぎゃ', set: 'hira', groups: ['voiced', 'yoon'] },
+    { key: 'k-basic', title: 'คาตาคานะ เสียงพื้นฐาน', jp: 'アイウエオ', set: 'kata', groups: ['basic'] },
+    { key: 'k-voiced', title: 'คาตาคานะ เสียงขุ่น เสียงควบ และเสียงพิเศษ', jp: 'ガギャファ', set: 'kata', groups: ['voiced', 'yoon', 'extra'] },
+    { key: 'hk', title: 'จับคู่ ฮิรางานะ กับ คาตาคานะ', jp: 'あ＝ア', set: 'both', groups: ['basic'] },
+    { key: 'listen', title: 'ฟังเสียงแล้วเลือกตัวอักษร', jp: '聞く', set: 'hira', groups: ['basic', 'voiced', 'yoon'], listen: true }
+  ];
+  function kanaChars(set, groups) {
+    var K = EJ.kana[set], out = [];
+    groups.forEach(function (g) { (K[g] || []).forEach(function (row) { (Array.isArray(row[0]) || row[0] === null ? row : [row]).forEach(function (c) { if (c) out.push(c); }); }); });
+    return out;
+  }
+  function best(key) { return (S.drill || {})[key] || 0; }
+  function bestBadge(key) {
+    var b = best(key);
+    return b ? '<span class="pbest' + (b >= 80 ? ' pass' : '') + '">' + b + '%</span>' : '<span class="pbest none">ยังไม่ทำ</span>';
+  }
+  function setTiles(kind, lid, sets) {
+    return '<div class="ptiles">' + sets.map(function (s, i) {
+      var key = kind + ':' + lid + ':' + (i + 1), b = best(key);
+      return '<a class="ptile' + (b >= 80 ? ' pass' : '') + '" href="#/practice/' + kind + '/' + lid + '/' + (i + 1) + '">' +
+        '<span class="pn num">' + (i + 1) + '</span><span class="pw jp">' + esc(s.slice(0, 3).map(function (c) { return kind === 'k' ? c.k : c.w; }).join('・')) + '</span>' + bestBadge(key) + '</a>';
+    }).join('') + '</div>';
+  }
+  function viewPractice(kind, lid) {
+    kind = kind === 'k' ? 'k' : kind === 'w' ? 'w' : '';
+    lid = BW[lid] ? lid : 'n5';
+    var html = '<div class="page"><h1 class="title">แบบฝึกหัด</h1>' +
+      '<p class="lead">ฝึกตั้งแต่ตัวอักษรตัวแรกจนถึงคำศัพท์และคันจิ N1 ทีละชุด ชุดละ ' + SET_N + ' ข้อ ได้ 80% ขึ้นไปถือว่าผ่าน</p>';
+    if (!kind) {
+      html += '<section class="section"><div class="section-head"><h2 class="h2">เริ่มจากศูนย์: คานะ</h2><a class="btn sm ghost" href="#/write">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a></div>' +
+        '<div class="pcards">' + KANA_DRILLS.map(function (d) {
+          return '<a class="card pcard" href="#/practice/kana/' + d.key + '"><span class="pj jp">' + esc(d.jp) + '</span><span class="pt">' + esc(d.title) + '</span>' + bestBadge('kana:' + d.key) + '</a>';
+        }).join('') + '</div></section>';
+      html += BLV.map(function (l) {
+        var ws = setsOf(BW[l]), ks = setsOf(BK[l]);
+        var wp = ws.filter(function (s, i) { return best('w:' + l + ':' + (i + 1)) >= 80; }).length, kp = ks.filter(function (s, i) { return best('k:' + l + ':' + (i + 1)) >= 80; }).length;
+        return '<section class="section"><div class="section-head"><h2 class="h2 with-chip">' + lvChip(LVID[l]) + esc(LVID[l].title) + '</h2></div><div class="plv">' +
+          '<a class="card pcard wide" href="#/practice/w/' + l + '"><span class="pt">คำศัพท์ ' + fmt(BW[l].length) + ' คำ</span><span class="pbar"><i style="transform:scaleX(' + (wp / Math.max(1, ws.length)) + ')"></i></span><span class="muted num">ผ่าน ' + wp + ' / ' + ws.length + ' ชุด</span></a>' +
+          '<a class="card pcard wide" href="#/practice/k/' + l + '"><span class="pt">คันจิ ' + fmt(BK[l].length) + ' ตัว</span><span class="pbar"><i style="transform:scaleX(' + (kp / Math.max(1, ks.length)) + ')"></i></span><span class="muted num">ผ่าน ' + kp + ' / ' + ks.length + ' ชุด</span></a>' +
+          '</div></section>';
+      }).join('');
+      return html + '</div>';
+    }
+    var list = kind === 'w' ? BW[lid] : BK[lid], sets = setsOf(list);
+    var counts = {}; BLV.forEach(function (l) { counts[l] = setsOf(kind === 'w' ? BW[l] : BK[l]).length; });
+    return html.replace('<h1 class="title">แบบฝึกหัด</h1>', '<nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/practice">แบบฝึกหัด</a></nav><h1 class="title">' + (kind === 'w' ? 'ฝึกคำศัพท์' : 'ฝึกคันจิ') + '</h1>') +
+      '<div class="row-actions" style="margin-top:24px">' + lvSeg('practice/' + kind, lid) +
+        '<a class="btn sm" href="#/practice/' + kind + '/' + lid + '/all/mix">' + icon('play', 'i-sm') + 'สุ่มรวมทั้ง ' + esc(LVID[lid].code) + '</a></div>' +
+      '<p class="muted" style="margin-top:12px">' + sets.length + ' ชุด แตะชุดเพื่อดูรายการแล้วเลือกวิธีฝึก</p>' +
+      setTiles(kind, lid, sets) + '</div>';
+  }
+  var W_MODES = [['mean', 'ดูคำ เลือกความหมาย'], ['word', 'ดูความหมาย เลือกคำ'], ['read', 'ดูคันจิ เลือกคำอ่าน'], ['listen', 'ฟังเสียง เลือกคำ'], ['type', 'พิมพ์คำอ่าน'], ['mix', 'ผสมทุกแบบ']];
+  var K_MODES = [['mean', 'ดูคันจิ เลือกความหมาย'], ['on', 'เลือกเสียงอง'], ['kun', 'เลือกเสียงคุน'], ['ex', 'อ่านคำตัวอย่าง'], ['mix', 'ผสมทุกแบบ']];
+  function viewSet(kind, lid, n) {
+    var list = (kind === 'w' ? BW : BK)[lid]; if (!list) return viewMissing();
+    var sets = setsOf(list), items = sets[n - 1]; if (!items) return viewMissing();
+    var key = kind + ':' + lid + ':' + n, modes = kind === 'w' ? W_MODES : K_MODES;
+    var body = kind === 'w'
+      ? '<div class="card vlist">' + items.map(function (c) { return wordRow(c); }).join('') + '</div>'
+      : kanjiTiles(items);
+    return '<div class="page"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/practice">แบบฝึกหัด</a>' + icon('right', 'i-sm') + '<a href="#/practice/' + kind + '/' + lid + '">' + (kind === 'w' ? 'คำศัพท์' : 'คันจิ') + ' ' + esc(LVID[lid].code) + '</a></nav>' +
+      '<h1 class="title title-s">' + (kind === 'w' ? 'คำศัพท์' : 'คันจิ') + ' ' + esc(LVID[lid].code) + ' ชุดที่ ' + n + ' <span class="muted num" style="font-size:16px">จาก ' + sets.length + '</span></h1>' +
+      '<div class="row-actions" style="margin-top:12px">' + bestBadge(key) + '</div>' +
+      '<div class="pmodes">' + modes.map(function (m) { return '<a class="btn' + (m[0] === 'mix' ? ' primary' : '') + '" href="#/practice/' + kind + '/' + lid + '/' + n + '/' + m[0] + '">' + esc(m[1]) + '</a>'; }).join('') + '</div>' +
+      '<div class="section-head" style="margin-top:32px"><h2 class="h2">อ่านทำความรู้จักก่อน</h2><button class="btn sm" data-add-set="' + esc(items.map(function (c) { return c.id; }).join(',')) + '">' + icon('plus', 'i-sm') + 'เพิ่มทั้งชุดเข้ากองทบทวน</button></div>' +
+      body +
+      '<div class="row-actions" style="margin-top:24px">' + (n > 1 ? '<a class="btn ghost" href="#/practice/' + kind + '/' + lid + '/' + (n - 1) + '">' + icon('left', 'i-sm') + 'ชุดก่อนหน้า</a>' : '') +
+        (n < sets.length ? '<a class="btn ghost" href="#/practice/' + kind + '/' + lid + '/' + (n + 1) + '">ชุดถัดไป' + icon('right', 'i-sm') + '</a>' : '') + '</div></div>';
+  }
+  function samePool(list, c, f) {
+    var p = list.filter(function (x) { return x !== c && !!x.en === !!c.en; }).map(f);
+    return p.length >= 3 ? p : list.filter(function (x) { return x !== c; }).map(f);
+  }
+  function readingAccept(r) {
+    var h = toHira(r).replace(/[～〜\s]/g, ''), ro = romaji(h).replace(/[\s']/g, '');
+    return [h, ro, ro.replace(/ou/g, 'o').replace(/uu/g, 'u'), ro.replace(/n'/g, 'n')];
+  }
+  function wordQ(mode, c, pool) {
+    var id = c.id;
+    if (mode === 'mean') return choiceQ('คำนี้แปลว่าอะไร', c.w, '', c.m, samePool(pool, c, function (x) { return x.m; }), false, c.r, id);
+    if (mode === 'word') return choiceQ('คำไหนแปลว่า', c.m, 'th', c.w, pool.map(function (x) { return x.w; }), true, c.r, id);
+    if (mode === 'read' && hasKanji(c.w)) return choiceQ('อ่านคำนี้ว่าอย่างไร', c.w, '', c.r, pool.filter(function (x) { return x.r !== c.r; }).map(function (x) { return x.r; }), true, c.r, id);
+    if (mode === 'listen') { var q = choiceQ('ฟังแล้วเลือกคำที่ได้ยิน', '', '', c.w, pool.filter(function (x) { return x.r !== c.r; }).map(function (x) { return x.w; }), true, c.r, id); q.listen = true; q.reveal = c.w + '（' + c.r + '）' + c.m; return q; }
+    if (mode === 'type') return { type: 'type', kind: 'พิมพ์คำอ่าน เป็นคานะหรือโรมาจิ', prompt: c.w, sub: c.m, pcls: '', answer: c.r, accept: readingAccept(c.r), say: c.r, cardId: id, ph: 'เช่น ' + (wordRoma(c) || 'taberu') };
+    return wordQ('mean', c, pool);
+  }
+  function kanjiQ(mode, c, pool) {
+    var id = c.id, ex = c.exr || c.k;
+    if (mode === 'mean') return choiceQ('คันจินี้มีความหมายว่า', c.k, 'hand', c.m, samePool(pool, c, function (x) { return x.m; }), false, ex, id);
+    if (mode === 'on' && c.on) return choiceQ('เสียงองของคันจินี้', c.k, 'hand', c.on, pool.filter(function (x) { return x.on && x.on !== c.on; }).map(function (x) { return x.on; }), true, ex, id);
+    if (mode === 'kun' && c.kun) return choiceQ('เสียงคุนของคันจินี้', c.k, 'hand', c.kun, pool.filter(function (x) { return x.kun && x.kun !== c.kun; }).map(function (x) { return x.kun; }), true, ex, id);
+    if (mode === 'ex' && c.exw && c.exr) return choiceQ('อ่านคำนี้ว่าอย่างไร', c.exw, '', c.exr, pool.filter(function (x) { return x.exr && x.exr !== c.exr; }).map(function (x) { return x.exr; }), true, c.exr, id);
+    return kanjiQ('mean', c, pool);
+  }
+  function viewPracticeQuiz(kind, lid, n, mode) {
+    var title, qs = [], key, back;
+    if (kind === 'kana') {
+      var d = KANA_DRILLS.filter(function (x) { return x.key === lid; })[0]; if (!d) return viewMissing();
+      key = 'kana:' + d.key; title = d.title; back = '#/practice';
+      if (d.set === 'both') {
+        var hs = kanaChars('hira', ['basic']), ks = kanaChars('kata', ['basic']);
+        qs = pick(hs.map(function (h, i) { return [h, ks[i]]; }), SET_N).map(function (p, i) {
+          return i % 2 ? choiceQ('ฮิรางานะของตัวนี้คือ', p[1][0], 'hand', p[0][0], hs.map(function (x) { return x[0]; }), true, p[0][0])
+            : choiceQ('คาตาคานะของตัวนี้คือ', p[0][0], 'hand', p[1][0], ks.map(function (x) { return x[0]; }), true, p[0][0]);
+        });
+      } else {
+        var chars = kanaChars(d.set, d.groups), glyphs = chars.map(function (x) { return x[0]; });
+        qs = pick(chars, SET_N).map(function (c, i) {
+          if (d.listen) { var q = choiceQ('ฟังแล้วเลือกตัวอักษร', '', '', c[0], glyphs, true, c[0]); q.listen = true; q.reveal = c[0] + ' ' + c[1]; return q; }
+          return i % 2 ? choiceQ('ตัวไหนอ่านว่า "' + c[1] + '"', c[1], 'th', c[0], glyphs, true, c[0])
+            : { type: 'type', kind: 'พิมพ์เสียงอ่านเป็นโรมาจิ', prompt: c[0], pcls: 'hand', answer: c[1], accept: [c[1]].concat(ALT[c[1]] || []), say: c[0] };
+        });
+      }
+    } else {
+      var all = (kind === 'w' ? BW : BK)[lid]; if (!all) return viewMissing();
+      var items, sets = setsOf(all);
+      if (n === 'all') { items = pick(all, SET_N); key = null; title = (kind === 'w' ? 'คำศัพท์ ' : 'คันจิ ') + LVID[lid].code + ' สุ่มรวม'; back = '#/practice/' + kind + '/' + lid; }
+      else { n = +n; items = sets[n - 1]; if (!items) return viewMissing(); key = kind + ':' + lid + ':' + n; title = (kind === 'w' ? 'คำศัพท์ ' : 'คันจิ ') + LVID[lid].code + ' ชุดที่ ' + n; back = '#/practice/' + kind + '/' + lid + '/' + n; }
+      var modes = (kind === 'w' ? W_MODES : K_MODES).map(function (m) { return m[0]; }).filter(function (m) { return m !== 'mix'; });
+      if (kind === 'w' && mode === 'read') items = items.filter(function (c) { return hasKanji(c.w); });
+      if (!items.length) items = (sets[n - 1] || all).slice();
+      qs = shuffle(items).map(function (c, i) {
+        var m = mode === 'mix' || !mode ? modes[i % modes.length] : mode;
+        return kind === 'w' ? wordQ(m, c, all) : kanjiQ(m, c, all);
+      });
+    }
+    var fake = { id: 'practice', kind: 'drill', code: '', title: title, level: LEVELS[0], num: 0 };
+    Q = { st: fake, qs: qs, i: 0, right: 0, miss: [], locked: false, drill: true, practice: { key: key, back: back, kind: kind, lid: lid, n: n, mode: mode } };
+    return {
+      html: '<div class="page"><div class="quiz"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/practice">แบบฝึกหัด</a>' + icon('right', 'i-sm') + '<a href="' + back + '">' + esc(title) + '</a></nav>' +
+        '<h1 class="title title-s">' + esc(title) + '</h1><div id="quizBox"></div></div></div>',
+      mount: renderQ, destroy: function () { Q = null; }
+    };
+  }
+  function practiceResult() {
+    var P = Q.practice, n = Q.qs.length, pct = Math.round(Q.right / n * 100), pass = pct >= 80, prev = P.key ? best(P.key) : 0;
+    if (P.key && pct > prev) { S.drill[P.key] = pct; save(); }
+    var sets = P.kind === 'w' || P.kind === 'k' ? setsOf((P.kind === 'w' ? BW : BK)[P.lid]).length : 0;
+    var next = typeof P.n === 'number' && P.n < sets ? '#/practice/' + P.kind + '/' + P.lid + '/' + (P.n + 1) : null;
+    var missIds = Q.miss.map(function (q) { return q.cardId; }).filter(function (id) { return id && CARD[id] && !S.srs[id]; });
+    $('#quizBox').innerHTML = '<div class="card result" style="margin-top:24px">' +
+      (pass ? '<span class="hanko lg stamp-in" style="' + lvVars(P.kind === 'kana' ? LEVELS[0] : LVID[P.lid]) + '">合格<small>' + pct + '%</small></span>' : '') +
+      '<div class="score">' + Q.right + '<span class="muted" style="font-size:24px"> / ' + n + '</span></div>' +
+      '<p class="lead" style="margin:12px auto 0">' + (pass ? 'ผ่านชุดนี้แล้ว' : 'ได้ ' + pct + '% ทำอีกรอบให้ถึง 80%') + (P.key && pct > prev && prev ? ' ทำลายสถิติเดิม ' + prev + '%' : '') + '</p>' +
+      '<div class="row-actions" style="justify-content:center;margin-top:24px">' +
+        (pass && next ? '<a class="btn primary" href="' + next + '">ชุดถัดไป' + icon('arrow', 'i-sm') + '</a>' : '') +
+        '<button class="btn" data-retry>' + icon('redo', 'i-sm') + 'ทำอีกครั้ง</button>' +
+        (missIds.length ? '<button class="btn" data-add-set="' + esc(missIds.join(',')) + '">' + icon('plus', 'i-sm') + 'เพิ่ม ' + missIds.length + ' ข้อที่พลาดเข้ากองทบทวน</button>' : '') +
+        '<a class="btn ghost" href="' + P.back + '">กลับ</a>' +
+      '</div>' +
+      (Q.miss.length ? '<div class="miss"><div class="h3">ข้อที่พลาด</div><ul style="list-style:none;padding:0;margin:8px 0 0">' + Q.miss.map(function (q) {
+        return '<li><span class="jp">' + esc(q.reveal || q.prompt) + '</span><span class="soft jp">' + esc(q.answer) + '</span></li>';
+      }).join('') + '</ul></div>' : '') +
+    '</div>';
   }
 
   /* ================= login / account ================= */
@@ -1269,7 +1533,7 @@
       '<p class="muted" style="font-size:12px;margin-top:24px">เนื้อหาเป็นชุดเริ่มต้นสำหรับแต่ละระดับ ใช้คู่กับหนังสือเรียนและข้อสอบเก่าจะได้ผลดีที่สุด ไอคอนจาก Lucide</p></div>';
   }
   function viewMore() {
-    var items = [['#/account', 'user', 'บัญชี'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
+    var items = [['#/account', 'user', 'บัญชี'], ['#/words', 'words', 'คลังคำศัพท์'], ['#/practice', 'target', 'แบบฝึกหัด'], ['#/kana', 'grid', 'ตารางคานะ'], ['#/kanji', 'type', 'คันจิ'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
     return '<div class="page page-narrow"><h1 class="title">เมนู</h1><div class="card" style="margin-top:24px">' + items.map(function (x) {
       return '<a class="list-row" href="' + x[0] + '">' + icon(x[1], 'muted') + '<span class="grow">' + x[2] + '</span>' + icon('right', 'muted') + '</a>';
     }).join('') + '</div></div>';
@@ -1277,7 +1541,7 @@
 
   /* ================= events ================= */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy],[data-forget],[data-lg-edit]');
+    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy],[data-forget],[data-lg-edit],[data-add-word],[data-add-set],#wmore');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.hasAttribute('data-say')) {
       e.preventDefault(); speak(t.getAttribute('data-say'));
@@ -1342,6 +1606,17 @@
     if (t.hasAttribute('data-grade')) return grade(+t.getAttribute('data-grade'));
     if (t.id === 'flash' && R && !R.flipped) { R.flipped = true; return renderCard(); }
     if (t.hasAttribute('data-add-lesson')) { var n = addCards(lessonCardIds(SID[t.getAttribute('data-add-lesson')].lesson)); toast(n ? 'เพิ่ม ' + n + ' ใบเข้ากองทบทวนแล้ว' : 'อยู่ในกองทบทวนครบแล้ว'); return route(); }
+    if (t.hasAttribute('data-add-word')) {
+      addCards([t.getAttribute('data-add-word')]);
+      var sp = document.createElement('span'); sp.className = 'icon-btn in-srs'; sp.title = 'อยู่ในกองทบทวนแล้ว'; sp.innerHTML = icon('check'); t.replaceWith(sp);
+      toast('เพิ่มเข้ากองทบทวนแล้ว'); return;
+    }
+    if (t.hasAttribute('data-add-set')) {
+      var nn = addCards(t.getAttribute('data-add-set').split(','));
+      toast(nn ? 'เพิ่ม ' + nn + ' ใบเข้ากองทบทวนแล้ว' : 'อยู่ในกองทบทวนครบแล้ว');
+      t.disabled = true; if (!$('#quizBox')) route(); return;
+    }
+    if (t.id === 'wmore') { if (WB) { WB.limit += 100; renderWordList(); } return; }
     if (t.hasAttribute('data-add-card')) { addCards([t.getAttribute('data-add-card')]); toast('เพิ่มเข้ากองทบทวนแล้ว'); var ch = t.getAttribute('data-add-card').slice(2); kanjiSheet(ch); var tile = $('[data-kanji="' + ch + '"]'); if (tile) tile.classList.add('learned'); return; }
     if (t.hasAttribute('data-read-done')) { var id = t.getAttribute('data-read-done'); if (!isDone(id)) { markDone(id, 100); addXP(15); } toast('ได้ตราประทับสถานีอ่านแล้ว'); return route(); }
     if (t.hasAttribute('data-goal')) { S.settings.goal = +t.getAttribute('data-goal'); save(); return route(); }
@@ -1482,7 +1757,7 @@
     if (Q.locked) { Q.i++; return renderQ(); }
     var q = Q.qs[Q.i], inp = $('#qin'), v = inp.value.trim().toLowerCase();
     if (!v) return;
-    var ok = q.accept.indexOf(v) > -1;
+    var v2 = toHira(v).replace(/[\s'～〜]/g, ''), ok = q.accept.indexOf(v) > -1 || q.accept.indexOf(v2) > -1 || q.accept.indexOf(v.replace(/[\s'-]/g, '')) > -1;
     inp.classList.add(ok ? 'ok' : 'bad'); inp.readOnly = true; e.target.classList.add('done');
     answerQ(ok);
   });

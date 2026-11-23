@@ -723,3 +723,47 @@ body.gated .main { padding-bottom: var(--space-2xl); }
 .sync-error, .sync-signedout { color: var(--color-error); font-weight: 700; }
 .sync-offline { color: var(--color-muted); }
 .recovery { margin-top: var(--space-md); padding: var(--space-md); border-radius: var(--radius-tile); background: var(--color-accent-2); color: var(--color-ink); box-shadow: var(--shadow-tile); text-align: center; font: var(--display-weight) var(--text-xl)/1.2 var(--font-display); letter-spacing: 0.06em; font-synthesis: none; user-select: all; overflow-wrap: anywhere; }
+
+/* ---------- word bank and practice ---------- */
+.vrow.bank { grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.8fr) minmax(0, 1.6fr) auto; }
+.vacts { display: flex; gap: var(--space-2xs); }
+.icon-btn.in-srs { color: var(--color-ink); background: var(--color-accent-2); border-radius: var(--radius-pill); cursor: default; }
+.en-tag { display: inline-block; padding: 0 6px; border-radius: var(--radius-pill); background: var(--color-paper-2); color: var(--color-muted); font-size: 10px; font-weight: 700; line-height: 16px; vertical-align: 2px; }
+.seg-n { font-size: 11px; opacity: 0.7; }
+.wtools { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm) var(--space-md); margin-top: var(--space-md); }
+.wtools .input { flex: 1 1 320px; height: 44px; }
+.hint-line { margin-top: var(--space-sm); font-size: var(--text-sm); color: var(--color-muted); }
+
+.pcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-md); }
+.pcard { display: flex; flex-direction: column; gap: var(--space-xs); padding: var(--space-md); transition: transform var(--dur-short) var(--ease-out); }
+.pcard:hover { transform: translateY(-3px) rotate(-0.5deg); }
+.pcard:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+.pcard .pj { font: 400 var(--text-xl)/1.2 var(--font-outlier); }
+.pcard .pt { font-weight: 700; }
+.plv { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--space-md); }
+.pbar { display: block; height: 10px; border-radius: var(--radius-pill); background: var(--color-paper-2); overflow: hidden; }
+.pbar i { display: block; height: 100%; background: var(--color-accent); transform-origin: left; }
+.pbest { align-self: flex-start; padding: 2px 10px; border-radius: var(--radius-pill); font-size: var(--text-xs); font-weight: 700; background: var(--color-paper-2); color: var(--color-ink-2); }
+.pbest.pass { background: var(--color-accent-2); color: var(--color-ink); }
+.pbest.none { background: transparent; color: var(--color-muted); padding-left: 0; }
+.ptiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--space-sm); margin-top: var(--space-md); }
+.ptile {
+  display: flex; flex-direction: column; gap: var(--space-3xs); padding: var(--space-sm) var(--space-md);
+  background: var(--color-white); border-radius: var(--radius-tile); box-shadow: var(--shadow-tile);
+  transition: transform var(--dur-short) var(--ease-out);
+}
+.ptile:nth-child(odd) { rotate: -0.6deg; }
+.ptile:nth-child(even) { rotate: 0.5deg; }
+.ptile:hover { transform: translateY(-3px); }
+.ptile:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
+.ptile.pass { background: var(--color-accent-2); }
+.ptile .pn { font: var(--display-weight) var(--text-lg)/1 var(--font-display); font-synthesis: none; }
+.ptile .pw { font-size: var(--text-sm); color: var(--color-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pmodes { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin-top: var(--space-lg); }
+.qlisten { display: flex; justify-content: center; margin: var(--space-md) 0; }
+.qsub { margin-top: var(--space-2xs); color: var(--color-muted); text-align: center; }
+@media (max-width: 40rem) {
+  .vrow.bank { grid-template-columns: minmax(0, 1fr) auto; }
+  .vrow.bank .vacts { grid-column: 2; grid-row: 1 / span 3; flex-direction: column; }
+}
+@media (prefers-reduced-motion: reduce) { .pcard:hover, .ptile:hover { transform: none; } }

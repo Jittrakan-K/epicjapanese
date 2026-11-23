@@ -6,17 +6,17 @@
   <title>Kana to N1</title>
   <meta name="description" content="เส้นทางเรียนภาษาญี่ปุ่นสำหรับคนไทย ตั้งแต่ฮิรางานะตัวแรกจนถึง JLPT N1 พร้อมแผนที่ความก้าวหน้า แบบทดสอบ การ์ดทบทวน และฝึกเขียน">
   <meta name="theme-color" content="#f4efe6">
-  <link rel="icon" href="assets/mark.svg?v=15" type="image/svg+xml">
+  <link rel="icon" href="assets/mark.svg?v=16" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;700&family=Bowlby+One+SC&family=Klee+One&family=Prompt:wght@800&family=Sofia+Sans:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=15">
+  <link rel="stylesheet" href="css/app.css?v=16">
 </head>
 <body>
   <div class="shell">
     <aside class="side" aria-label="เมนูหลัก">
       <a class="brand" href="#/">
-        <img class="logo" src="assets/mark.svg?v=15" alt="" width="40" height="40">
+        <img class="logo" src="assets/mark.svg?v=16" alt="" width="40" height="40">
         <span class="brand-name">Kana to N1</span>
       </a>
 
@@ -28,11 +28,12 @@
       <nav class="nav">
         <a href="#/" data-nav="map"><svg class="i"><use href="#i-map"/></svg><span>แผนที่การเรียน</span></a>
         <a href="#/review" data-nav="review"><svg class="i"><use href="#i-layers"/></svg><span>ทบทวน</span><span class="count mono" id="dueCount"></span></a>
+        <a href="#/practice" data-nav="practice"><svg class="i"><use href="#i-target"/></svg><span>แบบฝึกหัด</span></a>
         <div class="nav-label">คลัง</div>
         <a href="#/kana" data-nav="kana"><svg class="i"><use href="#i-grid"/></svg><span>ตารางคานะ</span></a>
+        <a href="#/words" data-nav="words"><svg class="i"><use href="#i-words"/></svg><span>คำศัพท์</span></a>
         <a href="#/kanji" data-nav="kanji"><svg class="i"><use href="#i-type"/></svg><span>คันจิ</span></a>
         <a href="#/grammar" data-nav="grammar"><svg class="i"><use href="#i-book"/></svg><span>ไวยากรณ์</span></a>
-        <a href="#/write" data-nav="write"><svg class="i"><use href="#i-pen"/></svg><span>ฝึกเขียน</span></a>
         <div class="nav-label">ของฉัน</div>
         <a href="#/stats" data-nav="stats"><svg class="i"><use href="#i-chart"/></svg><span>สถิติ</span></a>
         <a href="#/settings" data-nav="settings"><svg class="i"><use href="#i-sliders"/></svg><span>ตั้งค่า</span></a>
@@ -44,7 +45,7 @@
 
     <header class="topbar">
       <a class="brand" href="#/">
-        <img class="logo" src="assets/mark.svg?v=15" alt="" width="40" height="40">
+        <img class="logo" src="assets/mark.svg?v=16" alt="" width="40" height="40">
         <span class="brand-name">Kana to N1</span>
       </a>
       <div class="topbar-actions"><a class="icon-btn" href="#/search/" aria-label="ค้นหา"><svg class="i"><use href="#i-search"/></svg></a><a class="me-top" href="#/account" data-me="top" aria-label="บัญชี"></a></div>
@@ -55,8 +56,8 @@
     <nav class="tabbar" aria-label="เมนูด่วน">
       <a href="#/" data-nav="map"><svg class="i"><use href="#i-map"/></svg><span>แผนที่</span></a>
       <a href="#/review" data-nav="review"><svg class="i"><use href="#i-layers"/></svg><span>ทบทวน</span></a>
-      <a href="#/kana" data-nav="kana"><svg class="i"><use href="#i-grid"/></svg><span>คานะ</span></a>
-      <a href="#/kanji" data-nav="kanji"><svg class="i"><use href="#i-type"/></svg><span>คันจิ</span></a>
+      <a href="#/practice" data-nav="practice"><svg class="i"><use href="#i-target"/></svg><span>ฝึก</span></a>
+      <a href="#/words" data-nav="words"><svg class="i"><use href="#i-words"/></svg><span>คำศัพท์</span></a>
       <a href="#/more" data-nav="more"><svg class="i"><use href="#i-dots"/></svg><span>อื่น ๆ</span></a>
     </nav>
   </div>
@@ -67,6 +68,8 @@
   <!-- ไอคอนชุดเดียว: lucide (ISC) เส้น 1.5 -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
+      <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></symbol>
+      <symbol id="i-words" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="m8 13 4-7 4 7"/><path d="M9.1 11h5.7"/></symbol>
       <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></symbol>
       <symbol id="i-swap" viewBox="0 0 24 24"><path d="m16 3 4 4-4 4"/><path d="M20 7H4"/><path d="m8 21-4-4 4-4"/><path d="M4 17h16"/></symbol>
       <symbol id="i-key" viewBox="0 0 24 24"><path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/></symbol>
@@ -99,14 +102,15 @@
     </defs>
   </svg>
 
-  <script src="data/kana.js?v=15"></script>
-  <script src="data/n5.js?v=15"></script>
-  <script src="data/n4.js?v=15"></script>
-  <script src="data/n3.js?v=15"></script>
-  <script src="data/n2.js?v=15"></script>
-  <script src="data/n1.js?v=15"></script>
-  <script src="js/cloud.js?v=15"></script>
-  <script src="js/app.js?v=15"></script>
+  <script src="data/kana.js?v=16"></script>
+  <script src="data/n5.js?v=16"></script>
+  <script src="data/n4.js?v=16"></script>
+  <script src="data/n3.js?v=16"></script>
+  <script src="data/n2.js?v=16"></script>
+  <script src="data/n1.js?v=16"></script>
+  <script src="data/bank.js?v=16"></script>
+  <script src="js/cloud.js?v=16"></script>
+  <script src="js/app.js?v=16"></script>
   <script>
     /* ถ้าสคริปต์หลักโหลดไม่ได้ ให้บอกผู้ใช้แทนการแสดงหน้าว่าง */
     setTimeout(function () {
