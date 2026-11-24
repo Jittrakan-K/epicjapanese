@@ -88,7 +88,7 @@
         var c = { id: 'k:' + k[0], type: 'k', k: k[0], on: k[1], kun: k[2], m: k[3], exw: k[4], exr: k[5], exm: k[6], level: lv, lesson: ls };
         if (!CARD[c.id]) { CARD[c.id] = c; KANJI.push(c); }
       });
-      (ls.grammar || []).forEach(function (g) { GRAMMAR.push(Object.assign({ level: lv, lesson: ls }, g)); });
+      (ls.grammar || []).forEach(function (g, gi) { var c = Object.assign({ level: lv, lesson: ls, id: 'g:' + ls.id + ':' + gi, type: 'g' }, g); GRAMMAR.push(c); CARD[c.id] = c; });
       (ls.kana || []).forEach(function (k) { KANA_ALL.push({ ch: k[0], ro: k[1], lesson: ls }); });
     });
     add({ id: lv.id + '-read', kind: 'reading', title: 'บทอ่าน: ' + lv.reading.title, jp: lv.id === 'kana' ? '看板' : '読解' });
@@ -446,7 +446,7 @@
   var LG = { mode: null, id: null, err: '' };
   function defaults() {
     return { v: 1, created: dayKey(), done: {}, srs: {}, days: {}, stats: { answered: 0, correct: 0, written: 0, reviews: 0 }, drill: {},
-      settings: { goal: 30, rate: 0.9, romaji: true, furigana: true, voice: '' } };
+      settings: { goal: 30, rate: 0.9, romaji: true, furigana: true, pitch: true, voice: '' } };
   }
   function normData(s) {
     var d = defaults();
@@ -490,7 +490,7 @@
     save(); chrome(); return n;
   }
   function lessonCardIds(ls) {
-    return (ls.vocab || []).map(function (v) { return 'v:' + v[0] + '|' + v[1]; }).concat((ls.kanji || []).map(function (k) { return 'k:' + k[0]; }));
+    return (ls.vocab || []).map(function (v) { return 'v:' + v[0] + '|' + v[1]; }).concat((ls.kanji || []).map(function (k) { return 'k:' + k[0]; })).concat((ls.grammar || []).map(function (g, gi) { return 'g:' + ls.id + ':' + gi; }));
   }
   function dueIds() { var t = dayNum(); return Object.keys(S.srs).filter(function (id) { return CARD[id] && S.srs[id].due <= t; }); }
   function schedule(c, g) {
@@ -507,11 +507,13 @@
   var VOICES = [];
   function loadVoices() { if (!('speechSynthesis' in window)) return; VOICES = speechSynthesis.getVoices().filter(function (v) { return /^ja/i.test(v.lang); }); }
   if ('speechSynthesis' in window) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
-  function speak(text) {
-    if (!('speechSynthesis' in window)) { toast('เบราว์เซอร์นี้ไม่รองรับเสียงอ่าน'); return; }
+  function speak(text, opt) {
+    opt = opt || {};
+    if (!('speechSynthesis' in window)) { toast('เบราว์เซอร์นี้ไม่รองรับเสียงอ่าน'); if (opt.onend) setTimeout(opt.onend, 800); return; }
     speechSynthesis.cancel();
     var u = new SpeechSynthesisUtterance(String(text).replace(/\s+/g, ''));
-    u.lang = 'ja-JP'; u.rate = S.settings.rate;
+    u.lang = 'ja-JP'; u.rate = S.settings.rate * (opt.slow ? 0.7 : 1);
+    if (opt.onend) { var fired = false; u.onend = u.onerror = function () { if (!fired) { fired = true; opt.onend(); } }; }
     var v = VOICES.filter(function (x) { return x.name === S.settings.voice; })[0] || VOICES[0];
     if (v) u.voice = v;
     speechSynthesis.speak(u);
@@ -570,6 +572,12 @@
         else if ((parts[1] === 'w' || parts[1] === 'k') && parts[3]) r = viewSet(parts[1], parts[2], +parts[3]);
         else r = viewPractice(parts[1], parts[2]);
         setNav('practice'); break;
+      case 'speak':
+        if (parts[1] === 'd') r = TID[parts[2]] ? viewDialog(TID[parts[2]]) : viewMissing();
+        else if (parts[1] === 'shadow' || parts[1] === 'say') r = viewSpDrill(parts[1], parts[2]);
+        else if (parts[1] === 'listen') r = viewPracticeQuiz('listen', BW[parts[2]] ? parts[2] : 'n5');
+        else r = viewSpeak(parts[1]);
+        setNav('speak'); break;
       case 'kana': r = viewKana(parts[1] || 'hira'); setNav('kana'); break;
       case 'drill': r = viewDrill(parts[1] || 'hira'); setNav('kana'); break;
       case 'kanji': r = viewKanji(parts[1]); setNav('kanji'); break;
@@ -800,7 +808,7 @@
     var ro = S.settings.romaji;
     var rRow = g.r ? '<div class="r">' + esc(g.r.replace(/\s+/g, ' ')) + '</div>' + (ro ? '<div class="ro">' + esc(romaji(g.r)) + '</div>' : '') : '';
     return '<div class="card gcard">' +
-      (showLevel ? '<div class="where">' + lvChip(g.level) + '<span>' + esc(g.lesson.title) + '</span></div>' : '') +
+      ((showLevel || g.id) ? '<div class="where">' + (showLevel ? lvChip(g.level) + '<span>' + esc(g.lesson.title) + '</span>' : '') + (g.id ? '<span class="gadd">' + addBtn(g) + '</span>' : '') + '</div>' : '') +
       '<div class="pat">' + esc(g.p) + '</div><div class="mean">' + esc(g.m) + '</div>' +
       '<div class="ex">' + sayBtn(g.ex, 'ฟังประโยค') + '<div class="body"><div class="s">' + esc(g.ex) + '</div>' + rRow + '<div class="th">' + esc(g.th) + '</div></div></div>' +
       (g.note ? '<div class="note">' + esc(g.note) + '</div>' : '') + '</div>';
@@ -960,6 +968,292 @@
     '</div>';
   }
 
+  /* ================= speaking: ฝึกพูด ฟัง และเสียงสูงต่ำ ================= */
+  var TALK = window.EJ_TALK || [], TID = {}, SENT = {}, PITCH = window.EJ_PITCH || {};
+  BLV.forEach(function (l) { SENT[l] = []; });
+  (function () {
+    var seen = {};
+    function add(l, jp, r, th) { if (!SENT[l] || !jp || !th || seen[jp]) return; seen[jp] = 1; SENT[l].push({ jp: jp, r: r || '', th: th }); }
+    TALK.forEach(function (t) { TID[t.id] = t; t.lines.forEach(function (x) { add(t.lv, x[1], x[2], x[3]); }); });
+    GRAMMAR.forEach(function (g) { add(g.level.id, g.ex, g.r, g.th); });
+    LEVELS.forEach(function (lv) { ((lv.reading || {}).lines || []).forEach(function (x) { add(lv.id, x[0], x[2], x[1]); }); });
+  })();
+  var SP_N = 10;
+
+  /* pitch accent: n คือโมระที่เสียงตกหลังจากนั้น 0 คือไม่ตก */
+  var SMALLK = 'ゃゅょぁぃぅぇぉゎャュョァィゥェォヮ';
+  function morae(r) { var m = []; Array.from(String(r).replace(/\s/g, '')).forEach(function (ch) { if (SMALLK.indexOf(ch) > -1 && m.length) m[m.length - 1] += ch; else m.push(ch); }); return m; }
+  function pitchOf(c) { if (S.settings.pitch === false || !c || c.type !== 'v') return null; var p = PITCH[c.w + '|' + c.r]; return p == null ? null : parseInt(p, 10); }
+  function pitchHTML(r, n) {
+    var m = morae(r); if (!m.length || isNaN(n)) return esc(r);
+    var label = n === 0 ? 'เสียงเรียบ ไม่ตก' : 'เสียงตกหลังโมระที่ ' + n;
+    return '<span class="pm" title="' + label + '" aria-label="' + esc(r) + ' ' + label + '">' + m.map(function (x, i) {
+      var hi = n === 1 ? i === 0 : (i > 0 && (n === 0 || i < n));
+      return '<span class="' + (hi ? 'h' : 'l') + (n > 0 && i === n - 1 ? ' d' : '') + '">' + esc(x) + '</span>';
+    }).join('') + '</span>';
+  }
+
+  /* speech recognition */
+  var SRC = window.SpeechRecognition || window.webkitSpeechRecognition, REC = null;
+  function stopRec() { if (REC) { var r = REC; REC = null; try { r.abort(); } catch (e) {} } }
+  function listenJa(done) {
+    if (!SRC) { done(null, 'unsupported'); return; }
+    stopRec(); if ('speechSynthesis' in window) speechSynthesis.cancel();
+    var r = new SRC(), fin = false; REC = r;
+    r.lang = 'ja-JP'; r.interimResults = false; r.maxAlternatives = 5; r.continuous = false;
+    function end(a, err) { if (fin) return; fin = true; if (REC === r) REC = null; done(a, err); }
+    r.onresult = function (e) { var a = [], res = e.results[0]; for (var i = 0; i < res.length; i++) a.push(res[i].transcript); end(a); };
+    r.onerror = function (e) { end(null, e.error); };
+    r.onend = function () { end(null, 'no-speech'); };
+    try { r.start(); } catch (e) { end(null, 'start'); }
+  }
+  function normJ(s) { return toHira(String(s || '').normalize('NFKC')).toLowerCase().replace(/[\s、。,.!?？！「」『』（）()・…~〜～"'”“]/g, ''); }
+  function lev(a, b) {
+    a = Array.from(a); b = Array.from(b);
+    var prev = [], cur, i, j; for (j = 0; j <= b.length; j++) prev[j] = j;
+    for (i = 1; i <= a.length; i++) { cur = [i]; for (j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; }
+    return prev[b.length];
+  }
+  function simJ(a, b) { a = normJ(a); b = normJ(b); if (!a || !b) return 0; return Math.max(0, 1 - lev(a, b) / Math.max(Array.from(a).length, Array.from(b).length)); }
+  function scoreAlts(alts, item) {
+    var top = 0, heard = alts[0] || '';
+    alts.forEach(function (t) { var s = Math.max(simJ(t, item.jp), simJ(t, item.r)); if (s > top) { top = s; heard = t; } });
+    return { pct: Math.round(top * 100), heard: heard };
+  }
+  function scoreTyped(t, item) {
+    t = String(t || '').trim(); if (!t) return { pct: 0, heard: '' };
+    var s = Math.max(simJ(t, item.jp), simJ(t, item.r));
+    if (/^[a-z\s'-]+$/i.test(t)) { var a = t.toLowerCase().replace(/[\s'-]/g, ''), b = romaji(item.r).replace(/[\s'-]/g, ''); s = Math.max(s, 1 - lev(a, b) / Math.max(a.length, b.length)); }
+    return { pct: Math.round(Math.max(0, s) * 100), heard: t };
+  }
+  var MIC_ERR = { unsupported: 'เบราว์เซอร์นี้ตรวจเสียงพูดไม่ได้ ลองเปิดเว็บด้วย Chrome หรือ Edge', 'not-allowed': 'ยังไม่ได้อนุญาตไมโครโฟน กดอนุญาตที่ไอคอนข้างช่องที่อยู่เว็บแล้วลองใหม่', 'service-not-allowed': 'เบราว์เซอร์ไม่อนุญาตให้ตรวจเสียง ลองใช้ Chrome', 'no-speech': 'ไม่ได้ยินเสียง ลองพูดดังขึ้นใกล้ไมค์', 'audio-capture': 'ไม่พบไมโครโฟน', network: 'การตรวจเสียงต้องต่ออินเทอร์เน็ต' };
+  function micErr(err) { return '<div class="spres bad">' + esc(MIC_ERR[err] || 'ตรวจเสียงไม่สำเร็จ ลองอีกครั้ง') + '</div>'; }
+  function scoreHTML(sc, typed) {
+    var cls = sc.pct >= 80 ? 'ok' : sc.pct >= 60 ? 'mid' : 'bad';
+    var word = sc.pct >= 80 ? 'ตรงมาก' : sc.pct >= 60 ? 'ใกล้แล้ว ลองอีกครั้ง' : 'ยังไม่ตรง ฟังแล้วลองใหม่';
+    return '<div class="spres ' + cls + '"><b class="num">' + sc.pct + '%</b> ' + word + (sc.heard ? '<div class="heard">' + (typed ? 'คุณพิมพ์ ' : 'ได้ยินว่า ') + '<span class="jp">' + esc(sc.heard) + '</span></div>' : '') + '</div>';
+  }
+  function micBtn(attr, label) { return '<button class="btn sm mic" ' + attr + '>' + icon('mic', 'i-sm') + '<span>' + esc(label || 'พูด') + '</span></button>'; }
+  function slowBtn(text) { return '<button class="btn sm ghost" data-say-slow="' + esc(text) + '">' + icon('sound', 'i-sm') + 'ช้าลง</button>'; }
+  function micOn(btn, on) { if (!btn) return; btn.classList.toggle('rec', on); var s = $('span', btn); if (s) { if (on) { btn.dataset.lbl = s.textContent; s.textContent = 'กำลังฟัง…'; } else if (btn.dataset.lbl) s.textContent = btn.dataset.lbl; } }
+  function readLine(r) { return '<div class="tr">' + esc(String(r).replace(/\s+/g, ' ')) + '</div>' + (S.settings.romaji ? '<div class="tro">' + esc(romaji(r)) + '</div>' : ''); }
+  function spBest(key, pct) { var prev = best(key); if (pct > prev) { S.drill[key] = pct; } addXP(Math.max(2, Math.round(pct / 20))); save(); return prev; }
+  function spResult(key, pct, again, back, note) {
+    var prev = spBest(key, pct), pass = pct >= 80;
+    return '<div class="card result" style="margin-top:24px">' + (pass ? '<span class="hanko lg stamp-in" style="' + lvVars(LVID[key.split(':').pop()] || LVID.n5) + '">合格<small>' + pct + '%</small></span>' : '') +
+      '<div class="score">' + pct + '<span class="muted" style="font-size:24px">%</span></div>' +
+      '<p class="lead" style="margin:12px auto 0">' + (note || (pass ? 'ผ่านแล้ว พูดได้คล่องขึ้นทุกรอบ' : 'ทำอีกรอบให้ถึง 80%')) + (pct > prev && prev ? ' ดีกว่าครั้งก่อนที่ ' + prev + '%' : '') + '</p>' +
+      '<div class="row-actions" style="justify-content:center;margin-top:24px"><a class="btn primary" href="' + again + '" data-reload>' + icon('redo', 'i-sm') + 'ฝึกอีกรอบ</a><a class="btn" href="' + back + '">กลับหน้าฝึกพูด</a></div></div>';
+  }
+
+  /* อัดเสียงตัวเองแล้วฟังเทียบ */
+  var MREC = null;
+  function recStop() { if (MREC) { try { if (MREC.r.state !== 'inactive') MREC.r.stop(); } catch (e) {} MREC.stream.getTracks().forEach(function (t) { t.stop(); }); MREC = null; } }
+  function recToggle(btn, out) {
+    if (MREC) { recStop(); return; }
+    if (!navigator.mediaDevices || !window.MediaRecorder) { out.innerHTML = '<div class="spres bad">เบราว์เซอร์นี้อัดเสียงไม่ได้</div>'; return; }
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+      var r = new MediaRecorder(stream), chunks = [];
+      MREC = { r: r, stream: stream };
+      r.ondataavailable = function (e) { if (e.data.size) chunks.push(e.data); };
+      r.onstop = function () {
+        btn.classList.remove('rec'); $('span', btn).textContent = 'อัดเสียงตัวเอง';
+        var url = URL.createObjectURL(new Blob(chunks, { type: r.mimeType || 'audio/webm' }));
+        out.innerHTML = '<div class="myvoice"><span class="muted">เสียงของคุณ</span><audio controls src="' + url + '"></audio></div>';
+      };
+      r.start(); btn.classList.add('rec'); $('span', btn).textContent = 'หยุดอัด';
+      setTimeout(function () { if (MREC && MREC.r === r) recStop(); }, 15000);
+    }).catch(function () { out.innerHTML = micErr('not-allowed'); });
+  }
+  function spDestroy() { stopRec(); recStop(); if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+  function noSrNote() { return SRC ? '' : '<div class="card spnote"><b>เบราว์เซอร์นี้ตรวจเสียงพูดไม่ได้</b> ยังฟังเสียงและฝึกพูดตามได้ตามปกติ แต่ต้องให้คะแนนตัวเอง ถ้าอยากให้เว็บตรวจเสียง เปิดด้วย Chrome หรือ Edge บนคอมพิวเตอร์ Chrome บน Android หรือ Safari บน iPhone</div>'; }
+
+  function viewSpeak(lid) {
+    lid = BW[lid] ? lid : 'n5';
+    var counts = {}; BLV.forEach(function (l) { counts[l] = TALK.filter(function (t) { return t.lv === l; }).length; });
+    var modes = [['shadow', 'พูดตาม', 'シャドーイング', 'ฟังแล้วพูดตามทันที ฝึกจังหวะและสำเนียง'], ['say', 'แปลแล้วพูด', '瞬間作文', 'เห็นภาษาไทย พูดเป็นญี่ปุ่นให้ทัน'], ['listen', 'ฟังจับใจความ', '聴解', 'ฟังประโยค เลือกความหมาย']];
+    var talks = TALK.filter(function (t) { return t.lv === lid; });
+    return '<div class="page"><h1 class="title">ฝึกพูด</h1>' +
+      '<p class="lead">บทสนทนาจริงและประโยคจากทุกบทเรียน เว็บอ่านให้ฟัง แล้วฟังคุณพูดเพื่อให้คะแนน</p>' + noSrNote() +
+      '<div class="row-actions" style="margin-top:24px">' + lvSeg('speak', lid, counts) + '</div>' +
+      '<section class="section"><div class="section-head"><h2 class="h2 with-chip">' + lvChip(LVID[lid]) + 'ฝึกประโยค</h2><span class="muted num">' + fmt(SENT[lid].length) + ' ประโยค</span></div>' +
+        '<div class="pcards">' + modes.map(function (m) {
+          return '<a class="card pcard" href="#/speak/' + m[0] + '/' + lid + '"><span class="pj jp">' + m[2] + '</span><span class="pt">' + m[1] + '</span><span class="pd">' + m[3] + '</span>' + bestBadge('sp:' + m[0] + ':' + lid) + '</a>';
+        }).join('') + '</div></section>' +
+      '<section class="section"><div class="section-head"><h2 class="h2">บทสนทนา</h2><span class="muted num">' + talks.length + ' บท</span></div>' +
+        '<div class="pcards">' + talks.map(function (t) {
+          return '<a class="card pcard" href="#/speak/d/' + t.id + '"><span class="pj jp">' + esc(t.jp) + '</span><span class="pt">' + esc(t.title) + '</span><span class="pd">' + esc(t.a) + ' กับ' + esc(t.b) + ', ' + t.lines.length + ' ประโยค</span>' + bestBadge('sp:d:' + t.id) + '</a>';
+        }).join('') + '</div></section>' +
+      '<section class="section"><div class="section-head"><h2 class="h2">เสียงสูงต่ำ</h2></div><div class="card spinfo">' +
+        '<p>คำญี่ปุ่นมีระดับเสียงสูงต่ำ คำเดียวกันออกเสียงต่างกันได้ความหมายต่างกัน เส้นด้านบนคือเสียงสูง เส้นตั้งคือจุดที่เสียงตก</p>' +
+        '<div class="pmex">' + [['箸', 'はし', 1, 'ตะเกียบ'], ['橋', 'はし', 2, 'สะพาน'], ['雨', 'あめ', 1, 'ฝน'], ['飴', 'あめ', 0, 'ลูกอม']].map(function (x) {
+          return '<div><span class="jp w">' + x[0] + '</span>' + pitchHTML(x[1], x[2]) + '<span class="muted">' + x[3] + '</span>' + sayBtn(x[1] === 'はし' && x[2] === 2 ? '橋' : x[0]) + '</div>';
+        }).join('') + '</div>' +
+        '<p class="muted small">ทุกคำในคลังคำศัพท์ที่มีข้อมูลจะแสดงเส้นนี้ ปิดได้ในหน้าตั้งค่า ข้อมูลเสียงสูงต่ำจาก <a href="https://github.com/mifunetoshiro/kanjium" target="_blank" rel="noopener">Kanjium</a> โดย Uros O. ใบอนุญาต CC BY-SA 4.0</p></div></section>' +
+      '<section class="section"><div class="section-head"><h2 class="h2">ฝึกให้พูดคล่อง</h2></div><ol class="card sptips">' +
+        '<li><b>ฟังก่อนอ่าน</b> เปิดเสียงฟังโดยยังไม่ดูตัวหนังสือ แล้วค่อยเปิดดู</li>' +
+        '<li><b>พูดตามออกเสียงจริง</b> พูดให้ดังทุกครั้ง การท่องในใจไม่ช่วยเรื่องพูด</li>' +
+        '<li><b>อัดเสียงตัวเองแล้วฟังเทียบ</b> จะได้ยินจุดที่ต่างจากต้นฉบับชัดกว่า</li>' +
+        '<li><b>สวมบทในบทสนทนา</b> ตอบให้ทันโดยไม่ดูประโยค เหมือนคุยจริง</li>' +
+        '<li><b>คุยกับคนจริง</b> พอถึง N4 ลองหาเพื่อนคุยหรือครูออนไลน์ แล้วใช้หน้านี้ซ้อมก่อนคุย</li></ol></section></div>';
+  }
+
+  var D = null;
+  function viewDialog(t) {
+    var lv = LVID[t.lv];
+    D = { t: t, role: null, i: -1, scores: [], tok: 0, busy: false };
+    var html = '<div class="page page-narrow"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/speak/' + t.lv + '">ฝึกพูด ' + esc(lv.code) + '</a></nav>' +
+      '<h1 class="title title-s">' + esc(t.title) + '</h1><p class="lead jp">' + esc(t.jp) + '</p>' + noSrNote() +
+      '<div class="card dctl"><div class="row-actions"><button class="btn" id="dPlay">' + icon('play', 'i-sm') + 'ฟังทั้งบท</button>' +
+        '<button class="btn primary" data-role="a">' + icon('mic', 'i-sm') + 'สวมบท' + esc(t.a) + '</button><button class="btn primary" data-role="b">' + icon('mic', 'i-sm') + 'สวมบท' + esc(t.b) + '</button></div>' +
+        '<div class="row-actions" style="gap:24px;margin-top:12px"><label class="toggle"><input type="checkbox" id="dHide">ซ่อนประโยคญี่ปุ่น</label><label class="toggle"><input type="checkbox" id="dTh" checked>แสดงคำแปล</label></div>' +
+        '<p class="muted small" style="margin-top:8px">สวมบท: เว็บพูดบทของอีกฝ่าย พอถึงตาคุณจะเห็นแค่คำแปล ให้พูดเป็นภาษาญี่ปุ่นทันที</p></div>' +
+      '<div id="dLines" class="tlines">' + t.lines.map(function (x, i) {
+        return '<div class="tline ' + x[0] + '" id="tl' + i + '"><div class="who">' + esc(x[0] === 'a' ? t.a : t.b) + '</div><div class="bub">' +
+          '<div class="tj jp">' + esc(x[1]) + '</div>' + readLine(x[2]) + '<div class="tt">' + esc(x[3]) + '</div>' +
+          '<div class="tacts">' + sayBtn(x[1]) + slowBtn(x[1]) + micBtn('data-mic="' + i + '"', 'พูดประโยคนี้') + '</div><div class="tres" id="tres' + i + '"></div></div></div>';
+      }).join('') + '</div><div id="dEnd"></div></div>';
+    return { html: html, mount: dMount, destroy: function () { spDestroy(); D = null; } };
+  }
+  function dItem(i) { var x = D.t.lines[i]; return { jp: x[1], r: x[2], th: x[3] }; }
+  function dMark(i) { $$('.tline').forEach(function (el, k) { el.classList.toggle('on', k === i); }); var el = $('#tl' + i); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' }); }
+  function dStop() { D.tok++; D.role = null; D.i = -1; stopRec(); if ('speechSynthesis' in window) speechSynthesis.cancel(); $$('.tline').forEach(function (el) { el.classList.remove('on', 'mine'); }); }
+  function dPlayAll() {
+    dStop(); var tok = D.tok;
+    (function next(i) {
+      if (!D || D.tok !== tok) return;
+      if (i >= D.t.lines.length) { dMark(-1); return; }
+      dMark(i); speak(D.t.lines[i][1], { onend: function () { setTimeout(function () { next(i + 1); }, 350); } });
+    })(0);
+  }
+  function dRole(role) {
+    dStop(); D.role = role; D.scores = []; $('#dEnd').innerHTML = ''; var tok = D.tok;
+    $$('.tres').forEach(function (el) { el.innerHTML = ''; });
+    (function next(i) {
+      if (!D || D.tok !== tok) return;
+      if (i >= D.t.lines.length) {
+        var n = D.scores.length, pct = n ? Math.round(D.scores.reduce(function (a, b) { return a + b; }, 0) / n) : 0;
+        dMark(-1); $$('.tline').forEach(function (el) { el.classList.remove('mine'); }); D.role = null;
+        $('#dEnd').innerHTML = spResult('sp:d:' + D.t.id, pct, '#/speak/d/' + D.t.id, '#/speak/' + D.t.lv, pct >= 80 ? 'สวมบทจบแล้ว พูดได้ดีมาก ลองสลับไปเล่นอีกบทหนึ่ง' : null);
+        return;
+      }
+      var x = D.t.lines[i], el = $('#tl' + i); dMark(i);
+      if (x[0] !== role) { speak(x[1], { onend: function () { setTimeout(function () { next(i + 1); }, 300); } }); return; }
+      el.classList.add('mine'); var out = $('#tres' + i);
+      if (!SRC) {
+        out.innerHTML = '<div class="spres mid">ถึงตาคุณ พูดออกเสียงแล้วกดให้คะแนนตัวเอง</div><div class="row-actions"><button class="btn sm" data-self="100">พูดได้</button><button class="btn sm" data-self="50">พอได้</button><button class="btn sm" data-self="0">ยังไม่ได้</button></div>';
+        D.wait = function (v) { el.classList.remove('mine'); D.scores.push(v); out.innerHTML = ''; speak(x[1], { onend: function () { next(i + 1); } }); };
+        return;
+      }
+      out.innerHTML = '<div class="spres mid">ถึงตาคุณ พูดเป็นภาษาญี่ปุ่นได้เลย</div>';
+      var btn = $('[data-mic="' + i + '"]'); micOn(btn, true);
+      listenJa(function (alts, err) {
+        micOn(btn, false); if (!D || D.tok !== tok) return;
+        var sc = alts ? scoreAlts(alts, dItem(i)) : { pct: 0, heard: '' };
+        D.scores.push(sc.pct); el.classList.remove('mine');
+        out.innerHTML = alts ? scoreHTML(sc) : micErr(err);
+        if (err === 'not-allowed' || err === 'unsupported' || err === 'audio-capture') { dStop(); return; }
+        setTimeout(function () { speak(x[1], { onend: function () { setTimeout(function () { next(i + 1); }, 400); } }); }, 500);
+      });
+    })(0);
+  }
+  function micCheck(btn, item, out) {
+    if (REC) { stopRec(); micOn(btn, false); return; }
+    micOn(btn, true);
+    listenJa(function (alts, err) { micOn(btn, false); out.innerHTML = alts ? scoreHTML(scoreAlts(alts, item)) : micErr(err); if (alts && H) { var s = scoreAlts(alts, item).pct; H.sc[H.i] = Math.max(H.sc[H.i] || 0, s); } });
+  }
+  function dMount() {
+    var root = $('.page');
+    root.addEventListener('click', function (e) {
+      var t = e.target.closest('#dPlay,[data-role],[data-mic],[data-say-slow],[data-self]'); if (!t || !D) return;
+      if (t.id === 'dPlay') return dPlayAll();
+      if (t.hasAttribute('data-role')) return dRole(t.getAttribute('data-role'));
+      if (t.hasAttribute('data-say-slow')) { dStop(); return speak(t.getAttribute('data-say-slow'), { slow: true }); }
+      if (t.hasAttribute('data-self')) { if (D.wait) { var f = D.wait; D.wait = null; f(+t.getAttribute('data-self')); } return; }
+      var i = +t.getAttribute('data-mic'); if (D.role) return; micCheck(t, dItem(i), $('#tres' + i));
+    });
+    root.addEventListener('change', function (e) {
+      if (e.target.id === 'dHide') $('#dLines').classList.toggle('hidejp', e.target.checked);
+      if (e.target.id === 'dTh') $('#dLines').classList.toggle('hideth', !e.target.checked);
+    });
+  }
+
+  /* พูดตาม (shadowing) และแปลแล้วพูด */
+  var H = null;
+  function viewSpDrill(kind, lid) {
+    lid = BW[lid] ? lid : 'n5';
+    var pool = SENT[lid]; if (!pool || !pool.length) return viewMissing();
+    H = { kind: kind, lid: lid, items: pick(pool, SP_N), i: 0, sc: [], shown: [] };
+    var title = (kind === 'shadow' ? 'พูดตาม ' : 'แปลแล้วพูด ') + LVID[lid].code;
+    return {
+      html: '<div class="page"><div class="quiz"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/speak/' + lid + '">ฝึกพูด ' + esc(LVID[lid].code) + '</a></nav>' +
+        '<h1 class="title title-s">' + esc(title) + '</h1>' +
+        '<p class="lead">' + (kind === 'shadow' ? 'ฟังแล้วพูดตามทันทีให้จังหวะตรงกับเสียงต้นฉบับ พูดซ้ำได้หลายครั้ง ระบบเก็บคะแนนที่ดีที่สุด' : 'อ่านภาษาไทยแล้วพูดเป็นภาษาญี่ปุ่น จะพูดหรือพิมพ์ก็ได้ ไม่ต้องตรงทุกคำ ขอให้สื่อความหมายเดียวกัน') + '</p>' + noSrNote() +
+        (kind === 'shadow' ? '<div class="row-actions" style="gap:24px;margin-top:16px"><label class="toggle"><input type="checkbox" id="hHide">ฟังอย่างเดียว ซ่อนตัวหนังสือ</label></div>' : '') +
+        '<div id="spBox"></div></div></div>',
+      mount: hMount, destroy: function () { spDestroy(); H = null; }
+    };
+  }
+  function hRender() {
+    var box = $('#spBox'); if (!box || !H) return;
+    if (H.i >= H.items.length) {
+      var pct = Math.round(H.sc.reduce(function (a, b) { return a + (b || 0); }, 0) / H.items.length);
+      box.innerHTML = spResult('sp:' + H.kind + ':' + H.lid, pct, '#/speak/' + H.kind + '/' + H.lid, '#/speak/' + H.lid) +
+        '<div class="card vlist" style="margin-top:24px">' + H.items.map(function (it, k) { return '<div class="vrow"><span class="w jp">' + esc(it.jp) + '</span><span class="me">' + esc(it.th) + ' <span class="num muted">' + (H.sc[k] || 0) + '%</span></span>' + sayBtn(it.jp) + '</div>'; }).join('') + '</div>';
+      return;
+    }
+    var it = H.items[H.i], sh = H.kind === 'shadow', open = sh || H.shown[H.i];
+    var hide = sh && $('#hHide') && $('#hHide').checked;
+    box.innerHTML = '<div class="quiz-top" style="margin-top:24px"><div class="bar"><i style="transform:scaleX(' + (H.i / H.items.length) + ')"></i></div><span class="num muted" style="font-size:12px">' + (H.i + 1) + ' / ' + H.items.length + '</span></div>' +
+      '<div class="card spcard">' +
+        (sh ? '' : '<div class="kind">พูดประโยคนี้เป็นภาษาญี่ปุ่น</div><div class="spth">' + esc(it.th) + '</div>') +
+        '<div class="spans' + (open ? '' : ' closed') + (hide ? ' blur' : '') + '"><div class="spjp jp">' + esc(it.jp) + '</div>' + readLine(it.r) + (sh ? '<div class="tt">' + esc(it.th) + '</div>' : '') + '</div>' +
+        '<div class="row-actions spacts">' +
+          (open ? sayBtn(it.jp, 'ฟังประโยค') + slowBtn(it.jp) : '') +
+          micBtn('id="hMic"', sh ? 'พูดตาม' : 'พูดคำตอบ') +
+          (sh ? '<button class="btn sm ghost" id="hRec">' + icon('mic', 'i-sm') + '<span>อัดเสียงตัวเอง</span></button>' : '<button class="btn sm ghost" id="hShow">' + icon('eye', 'i-sm') + 'ดูเฉลย</button>') +
+        '</div>' +
+        (sh ? '' : '<div class="sptype"><input class="input" id="hType" placeholder="หรือพิมพ์คำตอบ เป็นคานะหรือโรมาจิ" autocomplete="off" lang="ja"><button class="btn sm" id="hCheck">ตรวจ</button></div>') +
+        '<div id="hRes">' + (H.sc[H.i] != null ? scoreHTML({ pct: H.sc[H.i], heard: '' }) : '') + '</div><div id="hVoice"></div>' +
+        (!SRC || (!sh && open && H.sc[H.i] == null) ? '<div class="row-actions selfg"><span class="muted">ให้คะแนนตัวเอง</span><button class="btn sm" data-hself="100">พูดได้</button><button class="btn sm" data-hself="50">พอได้</button><button class="btn sm" data-hself="0">ยังไม่ได้</button></div>' : '') +
+      '</div>' +
+      '<div class="row-actions" style="justify-content:space-between;margin-top:16px"><button class="btn ghost" id="hPrev"' + (H.i ? '' : ' disabled') + '>' + icon('left', 'i-sm') + 'ก่อนหน้า</button><button class="btn primary" id="hNext">' + (H.i === H.items.length - 1 ? 'ดูผล' : 'ถัดไป') + icon('arrow', 'i-sm') + '</button></div>';
+    if (sh) setTimeout(function () { if (H && H.items[H.i] === it) speak(it.jp); }, 200);
+  }
+  function hReveal(sc, typed) {
+    var it = H.items[H.i]; H.shown[H.i] = true;
+    if (sc) H.sc[H.i] = Math.max(H.sc[H.i] || 0, sc.pct);
+    hRender(); if (sc) $('#hRes').innerHTML = scoreHTML(sc, typed);
+    speak(it.jp);
+  }
+  function hMount() {
+    var root = $('.page'); hRender();
+    root.addEventListener('click', function (e) {
+      var t = e.target.closest('#hMic,#hRec,#hShow,#hCheck,#hPrev,#hNext,[data-say-slow],[data-hself]'); if (!t || !H) return;
+      var it = H.items[H.i];
+      if (t.hasAttribute('data-say-slow')) return speak(t.getAttribute('data-say-slow'), { slow: true });
+      if (t.id === 'hPrev') { stopRec(); recStop(); H.i = Math.max(0, H.i - 1); return hRender(); }
+      if (t.id === 'hNext') { stopRec(); recStop(); H.i++; return hRender(); }
+      if (t.id === 'hRec') return recToggle(t, $('#hVoice'));
+      if (t.hasAttribute('data-hself')) { H.sc[H.i] = +t.getAttribute('data-hself'); H.shown[H.i] = true; H.i++; return hRender(); }
+      if (t.id === 'hShow') { H.shown[H.i] = true; hRender(); return speak(it.jp); }
+      if (t.id === 'hCheck') { var v = $('#hType').value; if (!v.trim()) return; return hReveal(scoreTyped(v, it), true); }
+      if (t.id === 'hMic') {
+        if (REC) { stopRec(); micOn(t, false); return; }
+        micOn(t, true);
+        listenJa(function (alts, err) {
+          micOn(t, false); if (!H || H.items[H.i] !== it) return;
+          if (!alts) { $('#hRes').innerHTML = micErr(err); return; }
+          var sc = scoreAlts(alts, it);
+          if (H.kind === 'shadow') { H.sc[H.i] = Math.max(H.sc[H.i] || 0, sc.pct); $('#hRes').innerHTML = scoreHTML(sc); }
+          else hReveal(sc);
+        });
+      }
+    });
+    root.addEventListener('keydown', function (e) { if (e.target.id === 'hType' && e.key === 'Enter') { e.preventDefault(); $('#hCheck').click(); } });
+    root.addEventListener('change', function (e) { if (e.target.id === 'hHide') { var a = $('.spans'); if (a) a.classList.toggle('blur', e.target.checked); } });
+  }
+
   /* ================= review (SRS) ================= */
   var R = null;
   function viewReview() {
@@ -971,7 +1265,7 @@
       '<div id="revBox"></div></div></div>';
     return { html: html, mount: function () { renderCard(total); }, destroy: function () { R = null; } };
   }
-  function cardFront(c) { return c.type === 'k' ? c.k : c.w; }
+  function cardFront(c) { return c.type === 'k' ? c.k : c.type === 'g' ? c.p : c.w; }
   function renderCard(total) {
     var box = $('#revBox'); if (!box || !R) return;
     if (R.i >= R.ids.length) {
@@ -985,20 +1279,23 @@
       return;
     }
     var id = R.ids[R.i], c = CARD[id], s = S.srs[id], f = cardFront(c), ro = S.settings.romaji;
-    var back = c.type === 'k'
+    var pv = pitchOf(c);
+    var back = c.type === 'g'
+      ? '<div class="me">' + esc(c.m) + '</div><div class="ex"><span class="jp">' + esc(c.ex) + '</span><div class="exr">' + esc(String(c.r || '').replace(/\s+/g, ' ')) + '</div>' + esc(c.th) + '</div>'
+      : c.type === 'k'
       ? '<div class="me">' + meanHTML(c) + '</div><div class="rd">' + esc(c.on) + '</div><div class="rd">' + esc(c.kun) + '</div>' + (c.exw ? '<div class="ex"><span class="jp">' + esc(c.exw) + '（' + esc(c.exr) + '）</span> ' + esc(c.exm) + '</div>' : '')
-      : '<div class="rd">' + esc(c.r) + '</div>' + (ro ? '<div class="ro">' + esc(romaji(c.r)) + '</div>' : '') + '<div class="me">' + meanHTML(c) + '</div>';
+      : '<div class="rd">' + (pv != null ? pitchHTML(c.r, pv) : esc(c.r)) + '</div>' + (ro ? '<div class="ro">' + esc(romaji(c.r)) + '</div>' : '') + '<div class="me">' + meanHTML(c) + '</div>';
     box.innerHTML =
       '<div class="quiz-top" style="margin-top:24px"><div class="bar"><i style="transform:scaleX(' + (R.done / Math.max(1, R.n)) + ')"></i></div><span class="num muted" style="font-size:12px">เหลือ ' + (R.ids.length - R.i) + '</span></div>' +
-      '<div class="card flash' + (R.flipped ? ' flipped' : '') + '" id="flash" role="button" tabindex="0" aria-label="พลิกการ์ด"><div class="front' + (f.length > 3 ? ' long' : '') + '">' + esc(f) + '</div>' +
-        (R.flipped ? '<div class="back">' + back + '<div style="margin-top:8px">' + sayBtn(c.type === 'k' ? (c.exr || c.k) : c.r) + '</div></div>'
+      '<div class="card flash' + (R.flipped ? ' flipped' : '') + '" id="flash" role="button" tabindex="0" aria-label="พลิกการ์ด"><div class="front' + (c.type === 'g' ? ' gram' : f.length > 3 ? ' long' : '') + '">' + esc(f) + '</div>' +
+        (R.flipped ? '<div class="back">' + back + '<div style="margin-top:8px">' + sayBtn(c.type === 'k' ? (c.exr || c.k) : c.type === 'g' ? c.ex : c.r) + '</div></div>'
           : '<div class="hint">แตะการ์ดหรือกด <kbd>Space</kbd> เพื่อดูคำตอบ</div>') +
         '<div class="hint where">' + lvChip(c.level) + '<span>' + esc(c.lesson.title) + '</span></div>' +
       '</div>' +
       (R.flipped ? '<div class="grades">' + [[1, 'ลืม', 'again'], [2, 'ยาก', ''], [3, 'จำได้', ''], [4, 'ง่าย', '']].map(function (g) {
         return '<button class="btn ' + g[2] + '" data-grade="' + g[0] + '">' + g[1] + '<small>' + ivlLabel(s, g[0]) + '</small></button>';
       }).join('') + '</div>' : '');
-    if (R.flipped) speak(c.type === 'k' ? (c.exr || c.k) : c.r);
+    if (R.flipped) speak(c.type === 'k' ? (c.exr || c.k) : c.type === 'g' ? c.ex : c.r);
   }
   function grade(g) {
     if (!R || !R.flipped) return;
@@ -1069,7 +1366,8 @@
     var list = GRAMMAR.filter(function (g) { return !lid || g.level.id === lid; });
     return '<div class="page page-narrow"><h1 class="title">ไวยากรณ์</h1>' +
       '<p class="lead">' + GRAMMAR.length + ' รูปประโยคเรียงตามสายและสถานี พร้อมตัวอย่างและคำแปล</p>' +
-      '<div class="row-actions" style="margin:24px 0 16px">' + levelFilter('grammar', lid, counts) + '</div>' +
+      '<div class="row-actions" style="margin:24px 0 16px">' + levelFilter('grammar', lid, counts) +
+        (function () { var ids = list.filter(function (g) { return !S.srs[g.id]; }).map(function (g) { return g.id; }); return ids.length ? '<button class="btn sm" data-add-set="' + esc(ids.join(',')) + '">' + icon('plus', 'i-sm') + 'เพิ่ม ' + ids.length + ' รูปประโยคเข้ากองทบทวน</button>' : '<span class="tag">อยู่ในกองทบทวนครบแล้ว</span>'; })() + '</div>' +
       list.map(function (g) { return grammarCard(g, true); }).join('') + '</div>';
   }
 
@@ -1200,7 +1498,7 @@
   }
   function wordRow(c, showLv) {
     var ro = S.settings.romaji;
-    return '<div class="vrow bank"><span class="w">' + furi(c.w, c.r) + '</span><span class="ro">' + (ro ? esc(romaji(c.r)) : esc(c.r)) + '</span>' +
+    return '<div class="vrow bank"><span class="w">' + furi(c.w, c.r) + '</span><span class="ro">' + (pitchOf(c) != null ? pitchHTML(c.r, pitchOf(c)) + (ro ? ' <small>' + esc(romaji(c.r)) + '</small>' : '') : ro ? esc(romaji(c.r)) : esc(c.r)) + '</span>' +
       '<span class="me">' + (showLv ? lvChip(c.blv || c.level) + ' ' : '') + meanHTML(c) + '</span><span class="vacts">' + sayBtn(c.r) + addBtn(c) + '</span></div>';
   }
   function wordMatches(q) {
@@ -1279,6 +1577,7 @@
     var html = '<div class="page"><h1 class="title">แบบฝึกหัด</h1>' +
       '<p class="lead">ฝึกตั้งแต่ตัวอักษรตัวแรกจนถึงคำศัพท์และคันจิ N1 ทีละชุด ชุดละ ' + SET_N + ' ข้อ ได้ 80% ขึ้นไปถือว่าผ่าน</p>';
     if (!kind) {
+      html += '<section class="section"><a class="card pcard wide spgo" href="#/speak">' + icon('mic') + '<span class="pt">ฝึกพูดและฟัง</span><span class="pd">บทสนทนา ' + TALK.length + ' บท พูดตาม แปลแล้วพูด ฟังจับใจความ เว็บฟังเสียงแล้วให้คะแนน</span></a></section>';
       html += '<section class="section"><div class="section-head"><h2 class="h2">เริ่มจากศูนย์: คานะ</h2><a class="btn sm ghost" href="#/write">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a></div>' +
         '<div class="pcards">' + KANA_DRILLS.map(function (d) {
           return '<a class="card pcard" href="#/practice/kana/' + d.key + '"><span class="pj jp">' + esc(d.jp) + '</span><span class="pt">' + esc(d.title) + '</span>' + bestBadge('kana:' + d.key) + '</a>';
@@ -1345,8 +1644,12 @@
     return kanjiQ('mean', c, pool);
   }
   function viewPracticeQuiz(kind, lid, n, mode) {
-    var title, qs = [], key, back;
-    if (kind === 'kana') {
+    var title, qs = [], key, back, crumb = '<a href="#/practice">แบบฝึกหัด</a>';
+    if (kind === 'listen') {
+      var pool = SENT[lid] || [], ths = pool.map(function (x) { return x.th; });
+      key = 'sp:listen:' + lid; title = 'ฟังจับใจความ ' + LVID[lid].code; back = '#/speak/' + lid; crumb = '<a href="#/speak/' + lid + '">ฝึกพูด ' + esc(LVID[lid].code) + '</a>';
+      qs = pick(pool, SP_N).map(function (x) { var q = choiceQ('ฟังแล้วเลือกความหมาย', '', '', x.th, ths, false, x.jp); q.listen = true; q.reveal = x.jp + '（' + String(x.r).replace(/\s+/g, '') + '）'; return q; });
+    } else if (kind === 'kana') {
       var d = KANA_DRILLS.filter(function (x) { return x.key === lid; })[0]; if (!d) return viewMissing();
       key = 'kana:' + d.key; title = d.title; back = '#/practice';
       if (d.set === 'both') {
@@ -1379,7 +1682,7 @@
     var fake = { id: 'practice', kind: 'drill', code: '', title: title, level: LEVELS[0], num: 0 };
     Q = { st: fake, qs: qs, i: 0, right: 0, miss: [], locked: false, drill: true, practice: { key: key, back: back, kind: kind, lid: lid, n: n, mode: mode } };
     return {
-      html: '<div class="page"><div class="quiz"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/practice">แบบฝึกหัด</a>' + icon('right', 'i-sm') + '<a href="' + back + '">' + esc(title) + '</a></nav>' +
+      html: '<div class="page"><div class="quiz"><nav class="crumbs" aria-label="ตำแหน่ง">' + crumb + (kind === 'listen' ? '' : icon('right', 'i-sm') + '<a href="' + back + '">' + esc(title) + '</a>') + '</nav>' +
         '<h1 class="title title-s">' + esc(title) + '</h1><div id="quizBox"></div></div></div>',
       mount: renderQ, destroy: function () { Q = null; }
     };
@@ -1523,7 +1826,7 @@
         '<div class="field"><label>เป้า XP ต่อวัน</label><div class="seg">' + [20, 30, 50, 100].map(function (g) { return '<button data-goal="' + g + '" class="' + (st.goal === g ? 'on' : '') + '">' + g + '</button>'; }).join('') + '</div></div>' +
         '<div class="field"><label>ความเร็วเสียงอ่าน <span class="num" id="rateV">' + st.rate.toFixed(2) + '×</span></label><input type="range" min="0.6" max="1.2" step="0.05" value="' + st.rate + '" data-set="rate" class="range"></div>' +
         '<div class="field"><label>เสียงภาษาญี่ปุ่น</label>' + voices + '<div><button class="btn sm" data-say="こんにちは。にほんごを べんきょうしましょう。">' + icon('sound', 'i-sm') + 'ทดลองฟัง</button></div></div>' +
-        '<div class="row-actions" style="gap:24px"><label class="toggle"><input type="checkbox" data-set="romaji"' + (st.romaji ? ' checked' : '') + '>แสดงโรมาจิ</label><label class="toggle"><input type="checkbox" data-set="furigana"' + (st.furigana ? ' checked' : '') + '>แสดงคำอ่านบนคันจิ</label></div>' +
+        '<div class="row-actions" style="gap:24px"><label class="toggle"><input type="checkbox" data-set="romaji"' + (st.romaji ? ' checked' : '') + '>แสดงโรมาจิ</label><label class="toggle"><input type="checkbox" data-set="furigana"' + (st.furigana ? ' checked' : '') + '>แสดงคำอ่านบนคันจิ</label><label class="toggle"><input type="checkbox" data-set="pitch"' + (st.pitch !== false ? ' checked' : '') + '>แสดงเสียงสูงต่ำ</label></div>' +
       '</div>' +
       '<div class="card pad" style="margin-top:16px"><div class="h3">สำรองความคืบหน้า</div><p class="soft" style="font-size:14px;margin-top:4px">ข้อมูลทั้งหมดอยู่ในเบราว์เซอร์นี้เท่านั้น ส่งออกเป็นไฟล์ไว้ย้ายเครื่องหรือกันข้อมูลหาย</p>' +
         '<div class="row-actions" style="margin-top:16px"><button class="btn sm" id="exp">' + icon('download', 'i-sm') + 'ส่งออก</button><label class="btn sm">' + icon('upload', 'i-sm') + 'นำเข้า<input type="file" id="imp" accept="application/json" hidden></label>' +
@@ -1531,7 +1834,7 @@
       '<p class="muted" style="font-size:12px;margin-top:24px">เนื้อหาเป็นชุดเริ่มต้นสำหรับแต่ละระดับ ใช้คู่กับหนังสือเรียนและข้อสอบเก่าจะได้ผลดีที่สุด ไอคอนจาก Lucide</p></div>';
   }
   function viewMore() {
-    var items = [['#/account', 'user', 'บัญชี'], ['#/words', 'words', 'คลังคำศัพท์'], ['#/practice', 'target', 'แบบฝึกหัด'], ['#/kana', 'grid', 'ตารางคานะ'], ['#/kanji', 'type', 'คันจิ'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
+    var items = [['#/account', 'user', 'บัญชี'], ['#/words', 'words', 'คลังคำศัพท์'], ['#/practice', 'target', 'แบบฝึกหัด'], ['#/speak', 'mic', 'ฝึกพูด'], ['#/kana', 'grid', 'ตารางคานะ'], ['#/kanji', 'type', 'คันจิ'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
     return '<div class="page page-narrow"><h1 class="title">เมนู</h1><div class="card" style="margin-top:24px">' + items.map(function (x) {
       return '<a class="list-row" href="' + x[0] + '">' + icon(x[1], 'muted') + '<span class="grow">' + x[2] + '</span>' + icon('right', 'muted') + '</a>';
     }).join('') + '</div></div>';
@@ -1628,13 +1931,14 @@
     }
   });
 
+  document.addEventListener('click', function (e) { var a = e.target.closest && e.target.closest('[data-reload]'); if (a && location.hash === a.getAttribute('href')) { e.preventDefault(); route(); } });
   document.addEventListener('change', function (e) {
     var t = e.target;
     if (t.hasAttribute('data-set')) {
       var k = t.getAttribute('data-set');
       S.settings[k] = t.type === 'checkbox' ? t.checked : t.type === 'range' ? +t.value : t.value; save();
       if (t.type === 'range') return;
-      if (k === 'romaji' || k === 'furigana') return route();
+      if (k === 'romaji' || k === 'furigana' || k === 'pitch') return route();
       return;
     }
     if (t.id === 'rdTh') $$('.rd-th').forEach(function (x) { x.classList.toggle('hide', !t.checked); });

@@ -6,17 +6,17 @@
   <title>Kana to N1</title>
   <meta name="description" content="เส้นทางเรียนภาษาญี่ปุ่นสำหรับคนไทย ตั้งแต่ฮิรางานะตัวแรกจนถึง JLPT N1 พร้อมแผนที่ความก้าวหน้า แบบทดสอบ การ์ดทบทวน และฝึกเขียน">
   <meta name="theme-color" content="#f4efe6">
-  <link rel="icon" href="assets/mark.svg?v=19" type="image/svg+xml">
+  <link rel="icon" href="assets/mark.svg?v=20" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@400;700&family=Bowlby+One+SC&family=Klee+One&family=Prompt:wght@800&family=Sofia+Sans:wght@400;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/app.css?v=19">
+  <link rel="stylesheet" href="css/app.css?v=20">
 </head>
 <body>
   <div class="shell">
     <aside class="side" aria-label="เมนูหลัก">
       <a class="brand" href="#/">
-        <img class="logo" src="assets/mark.svg?v=19" alt="" width="40" height="40">
+        <img class="logo" src="assets/mark.svg?v=20" alt="" width="40" height="40">
         <span class="brand-name">Kana to N1</span>
       </a>
 
@@ -29,6 +29,7 @@
         <a href="#/" data-nav="map"><svg class="i"><use href="#i-map"/></svg><span>แผนที่การเรียน</span></a>
         <a href="#/review" data-nav="review"><svg class="i"><use href="#i-layers"/></svg><span>ทบทวน</span><span class="count mono" id="dueCount"></span></a>
         <a href="#/practice" data-nav="practice"><svg class="i"><use href="#i-target"/></svg><span>แบบฝึกหัด</span></a>
+        <a href="#/speak" data-nav="speak"><svg class="i"><use href="#i-mic"/></svg><span>ฝึกพูด</span></a>
         <div class="nav-label">คลัง</div>
         <a href="#/kana" data-nav="kana"><svg class="i"><use href="#i-grid"/></svg><span>ตารางคานะ</span></a>
         <a href="#/words" data-nav="words"><svg class="i"><use href="#i-words"/></svg><span>คำศัพท์</span></a>
@@ -45,7 +46,7 @@
 
     <header class="topbar">
       <a class="brand" href="#/">
-        <img class="logo" src="assets/mark.svg?v=19" alt="" width="40" height="40">
+        <img class="logo" src="assets/mark.svg?v=20" alt="" width="40" height="40">
         <span class="brand-name">Kana to N1</span>
       </a>
       <div class="topbar-actions"><a class="icon-btn" href="#/search/" aria-label="ค้นหา"><svg class="i"><use href="#i-search"/></svg></a><a class="me-top" href="#/account" data-me="top" aria-label="บัญชี"></a></div>
@@ -57,7 +58,7 @@
       <a href="#/" data-nav="map"><svg class="i"><use href="#i-map"/></svg><span>แผนที่</span></a>
       <a href="#/review" data-nav="review"><svg class="i"><use href="#i-layers"/></svg><span>ทบทวน</span></a>
       <a href="#/practice" data-nav="practice"><svg class="i"><use href="#i-target"/></svg><span>ฝึก</span></a>
-      <a href="#/words" data-nav="words"><svg class="i"><use href="#i-words"/></svg><span>คำศัพท์</span></a>
+      <a href="#/speak" data-nav="speak"><svg class="i"><use href="#i-mic"/></svg><span>ฝึกพูด</span></a>
       <a href="#/more" data-nav="more"><svg class="i"><use href="#i-dots"/></svg><span>อื่น ๆ</span></a>
     </nav>
   </div>
@@ -98,19 +99,22 @@
       <symbol id="i-redo" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
       <symbol id="i-play" viewBox="0 0 24 24"><path d="M6 3l14 9-14 9z"/></symbol>
       <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+      <symbol id="i-mic" viewBox="0 0 24 24"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></symbol>
       <symbol id="i-plus" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
     </defs>
   </svg>
 
-  <script src="data/kana.js?v=19"></script>
-  <script src="data/n5.js?v=19"></script>
-  <script src="data/n4.js?v=19"></script>
-  <script src="data/n3.js?v=19"></script>
-  <script src="data/n2.js?v=19"></script>
-  <script src="data/n1.js?v=19"></script>
-  <script src="data/bank.js?v=19"></script>
-  <script src="js/cloud.js?v=19"></script>
-  <script src="js/app.js?v=19"></script>
+  <script src="data/kana.js?v=20"></script>
+  <script src="data/n5.js?v=20"></script>
+  <script src="data/n4.js?v=20"></script>
+  <script src="data/n3.js?v=20"></script>
+  <script src="data/n2.js?v=20"></script>
+  <script src="data/n1.js?v=20"></script>
+  <script src="data/bank.js?v=20"></script>
+  <script src="data/talk.js?v=20"></script>
+  <script src="data/pitch.js?v=20"></script>
+  <script src="js/cloud.js?v=20"></script>
+  <script src="js/app.js?v=20"></script>
   <script>
     /* ถ้าสคริปต์หลักโหลดไม่ได้ ให้บอกผู้ใช้แทนการแสดงหน้าว่าง */
     setTimeout(function () {
