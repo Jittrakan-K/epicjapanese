@@ -1062,7 +1062,6 @@
       '<p class="lead">คันจิ JLPT ' + fmt(BK_ALL.length) + ' ตัว อยู่ในกองทบทวนแล้ว ' + fmt(learned) + ' ตัว แตะตัวคันจิเพื่อดูคำอ่านและคำตัวอย่าง</p>' +
       '<div class="row-actions" style="margin-top:24px">' + lvSeg('kanji', lid, counts) +
         '<a class="btn sm" href="#/practice/k/' + lid + '">' + icon('target', 'i-sm') + 'ฝึก ' + esc(LVID[lid].code) + ' เป็นชุด</a></div>' +
-      (lid === 'n2' || lid === 'n1' ? '<p class="hint-line">ความหมายที่มีป้าย <span class="en-tag">EN</span> ยังเป็นภาษาอังกฤษ กำลังทยอยแปลเป็นไทย</p>' : '') +
       '<section class="section">' + kanjiTiles(BK[lid]) + '</section></div>';
   }
   function viewGrammar(lid) {
@@ -1237,7 +1236,6 @@
           '<a class="btn sm" href="#/practice/w/' + lid + '">' + icon('target', 'i-sm') + 'ฝึก ' + esc(LVID[lid].code) + ' เป็นชุด</a></div>' +
         '<div class="wtools"><input class="input" id="wq" type="search" placeholder="ค้นทุกระดับ: คำไทย อังกฤษ ญี่ปุ่น หรือโรมาจิ" autocomplete="off">' +
           '<label class="toggle"><input type="checkbox" id="wtodo">เฉพาะคำที่ยังไม่ได้เพิ่ม</label><span class="muted num" id="wcount"></span></div>' +
-        (lid === 'n2' || lid === 'n1' ? '<p class="hint-line">คำที่มีป้าย <span class="en-tag">EN</span> ยังเป็นคำแปลภาษาอังกฤษ กำลังทยอยแปลเป็นไทย</p>' : '') +
         '<div id="wlist" style="margin-top:16px"></div></div>',
       mount: function () {
         renderWordList();
