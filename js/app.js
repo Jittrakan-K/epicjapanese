@@ -829,10 +829,47 @@
       return '<button class="ktile' + (S.srs[c.id] ? ' learned' : '') + '" data-kanji="' + esc(c.k) + '"><span class="ch">' + esc(c.k) + '</span><span class="mn">' + esc(c.m) + '</span></button>';
     }).join('') + '</div>';
   }
+  /* ================= ลำดับขีด (KanjiVG) ================= */
+  var STROKES = {}, STK_WAIT = {}, KLV = null;
+  function strokeLv(ch) {
+    if (/^[ぁ-ヺ]$/.test(ch)) return 'kana';
+    if (!KLV) { KLV = {}; ((window.EJ_BANK || {}).kanji || []).forEach(function (k) { KLV[k[0]] = 'n' + k[1]; }); }
+    return KLV[ch] || null;
+  }
+  function loadStrokes(ch, cb) {
+    var lv = strokeLv(ch); if (!lv) return cb(null);
+    if (STROKES[lv]) return cb(STROKES[lv][ch] || null);
+    if (STK_WAIT[lv]) { STK_WAIT[lv].push(function () { cb((STROKES[lv] || {})[ch] || null); }); return; }
+    STK_WAIT[lv] = [function () { cb((STROKES[lv] || {})[ch] || null); }];
+    fetch('data/strokes/' + lv + '.json?v=1').then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; }).then(function (d) {
+      STROKES[lv] = d; var w = STK_WAIT[lv]; STK_WAIT[lv] = null; w.forEach(function (f) { f(); });
+    });
+  }
+  function strokeSVG(d, nums) {
+    return '<svg class="ksvg' + (nums ? ' nums' : '') + '" viewBox="0 0 109 109" aria-hidden="true">' +
+      d[0].map(function (p, i) { return '<path class="st" d="' + p + '"/>'; }).join('') +
+      (nums ? '<g class="sn">' + d[1].map(function (n, i) { return '<text x="' + n[0] + '" y="' + n[1] + '">' + (i + 1) + '</text>'; }).join('') + '</g>' : '') + '</svg>';
+  }
+  var REDUCED = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function animStrokes(svg) {
+    if (!svg) return;
+    var ps = Array.prototype.slice.call(svg.querySelectorAll('.st')), t = 0;
+    svg.classList.add('anim');
+    ps.forEach(function (p) {
+      if (p._a) p._a.cancel();
+      var len = p.getTotalLength ? p.getTotalLength() : 100, dur = Math.max(260, len * 9);
+      p.style.strokeDasharray = len + ' ' + len;
+      if (REDUCED || !p.animate) { p.style.strokeDashoffset = 0; return; }
+      p.style.strokeDashoffset = len;
+      p._a = p.animate([{ strokeDashoffset: len }, { strokeDashoffset: 0 }], { duration: dur, delay: t, fill: 'forwards', easing: 'ease-in-out' });
+      t += dur + 140;
+    });
+  }
+
   function kanjiSheet(ch) {
     var c = CARD['k:' + ch]; if (!c) return;
     openSheet('<div class="sheet-head"><span class="where">' + lvChip(c.level) + '<span>' + esc(c.lesson.title) + '</span></span><button class="icon-btn" data-close aria-label="ปิด">' + icon('x') + '</button></div>' +
-      '<div class="kdetail"><div class="kbox">' + esc(c.k) + '</div><div>' +
+      '<div class="kdetail"><div><button class="kbox" id="kbox" aria-label="ดูลำดับขีดของ ' + esc(c.k) + '">' + esc(c.k) + '</button><div class="muted small kbox-hint">แตะเพื่อดูลำดับขีด</div></div><div>' +
         '<div class="h2">' + meanHTML(c) + '</div>' + (c.gloss && !c.en ? '<div class="muted" style="font-size:13px">' + esc(c.gloss) + '</div>' : '') +
         '<dl class="dl" style="margin-top:16px"><dt>อง</dt><dd class="jp">' + esc(c.on || '–') + '</dd><dt>คุน</dt><dd class="jp">' + esc(c.kun || '–') + '</dd>' + (c.strokes ? '<dt>จำนวนขีด</dt><dd class="num">' + c.strokes + '</dd>' : '') +
           (c.exw ? '<dt>ตัวอย่าง</dt><dd><span class="jp" style="font-size:18px">' + furi(c.exw, c.exr) + '</span> <span class="muted">' + esc(c.exm) + '</span></dd>' : '') + '</dl>' +
@@ -840,6 +877,10 @@
           '<a class="btn sm" href="#/write/kanji/' + encodeURIComponent(c.k) + '">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a>' +
           (S.srs[c.id] ? '<span class="tag">อยู่ในกองทบทวน</span>' : '<button class="btn sm" data-add-card="' + esc(c.id) + '">' + icon('plus', 'i-sm') + 'เพิ่มเข้ากองทบทวน</button>') +
         '</div></div></div>');
+    loadStrokes(c.k, function (d) {
+      var b = $('#kbox'); if (!b || !d) { var h = $('.kbox-hint'); if (h) h.remove(); return; }
+      b.innerHTML = strokeSVG(d, true); b.onclick = function () { animStrokes($('svg', b)); }; animStrokes($('svg', b));
+    });
   }
 
   /* ================= reading ================= */
@@ -1422,37 +1463,43 @@
   function viewWrite(set, ch) {
     var list = writeSet(set), idx = Math.max(0, list.map(function (x) { return x.ch; }).indexOf(ch)), item = list[idx];
     var html = '<div class="page"><h1 class="title">ฝึกเขียน</h1>' +
-      '<p class="lead">เขียนทับตัวแบบจาง ๆ ด้วยนิ้วหรือเมาส์ ตัวแบบใช้ฟอนต์ลายมือแบบหนังสือเรียน ดูรูปทรงและสัดส่วนของเส้นได้ชัด</p>' +
+      '<p class="lead">เขียนทับตัวแบบจาง ๆ ด้วยนิ้วหรือเมาส์ ตัวเลขบอกลำดับขีด กดดูลำดับขีดเพื่อดูการเขียนทีละเส้น</p>' +
       '<div class="row-actions" style="margin:24px 0"><div class="seg">' + [['hira', 'ひらがな'], ['kata', 'カタカナ'], ['kanji', 'คันจิ']].map(function (s) {
         return '<button data-go="#/write/' + s[0] + '" class="' + (set === s[0] ? 'on' : '') + '">' + s[1] + '</button>';
       }).join('') + '</div></div>' +
-      '<div class="write-wrap"><div><div class="paper" id="paper"><span class="gx"></span><span class="gy"></span><span class="guide" id="guide">' + esc(item.ch) + '</span><canvas id="cv"></canvas></div>' +
+      '<div class="write-wrap"><div><div class="paper" id="paper"><span class="gx"></span><span class="gy"></span><span class="guide" id="guide">' + esc(item.ch) + '</span><div class="kv" id="kv"></div><canvas id="cv"></canvas></div>' +
         '<div class="row-actions" style="margin-top:12px;justify-content:space-between">' +
-          '<div class="row-actions"><button class="btn sm" id="wClear">' + icon('eraser', 'i-sm') + 'ล้าง</button><button class="btn sm ghost" id="wGuide">' + icon('eye', 'i-sm') + 'ซ่อนตัวแบบ</button></div>' +
+          '<div class="row-actions"><button class="btn sm" id="wClear">' + icon('eraser', 'i-sm') + 'ล้าง</button><button class="btn sm ghost" id="wGuide">' + icon('eye', 'i-sm') + 'ซ่อนตัวแบบ</button><button class="btn sm ghost" id="wAnim" hidden>' + icon('play', 'i-sm') + 'ดูลำดับขีด</button></div>' +
           '<div class="row-actions"><button class="icon-btn" id="wPrev" aria-label="ตัวก่อนหน้า">' + icon('left') + '</button><button class="btn sm primary" id="wNext">เขียนแล้ว ตัวถัดไป</button></div></div></div>' +
         '<div class="write-info"><div class="card pad"><div class="row-actions" style="justify-content:space-between"><div><div class="ch">' + esc(item.ch) + '</div><div class="soft">' + esc(item.sub) + '</div></div>' + sayBtn(item.say) + '</div>' +
           '<div class="muted num" style="font-size:12px;margin-top:16px">' + (idx + 1) + ' / ' + list.length + (set === 'kanji' && !KANJI.some(function (k) { return S.srs[k.id]; }) ? '<br>ยังไม่มีคันจิในกองทบทวน จึงแสดงชุด N5' : '') + '</div>' +
           '<div class="chip-row">' + list.map(function (x, i) { return '<button data-go="#/write/' + set + '/' + encodeURIComponent(x.ch) + '" class="' + (i === idx ? 'on' : '') + '" aria-label="' + esc(x.ch) + '">' + esc(x.ch) + '</button>'; }).join('') + '</div>' +
-        '</div><p class="muted" style="font-size:13px;margin-top:12px">เขียนไปแล้วทั้งหมด ' + fmt(S.stats.written) + ' ตัว</p></div></div></div>';
+        '</div><p class="muted" style="font-size:13px;margin-top:12px">เขียนไปแล้วทั้งหมด ' + fmt(S.stats.written) + ' ตัว</p><p class="muted small" style="margin-top:4px">ข้อมูลลำดับขีดจาก <a href="https://kanjivg.tagaini.net" target="_blank" rel="noopener">KanjiVG</a> โดย Ulrich Apel ใบอนุญาต CC BY-SA 3.0</p></div></div></div>';
 
     function go(d) { var n = list[(idx + d + list.length) % list.length]; location.hash = '#/write/' + set + '/' + encodeURIComponent(n.ch); }
     return {
       html: html,
       mount: function () {
         var paper = $('#paper'), cv = $('#cv'), ctx = cv.getContext('2d'), drawing = false, last = null, inked = false;
+        var ink = getComputedStyle(document.documentElement).getPropertyValue('--color-ink').trim() || '#1f1b16';
+        loadStrokes(item.ch, function (d) {
+          var kv = $('#kv'); if (!kv || !d) return;
+          kv.innerHTML = strokeSVG(d, true); paper.classList.add('has-kv');
+          var b = $('#wAnim'); b.hidden = false; b.onclick = function () { animStrokes($('svg', kv)); };
+        });
         function size() {
           var r = paper.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
           cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-          ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1f1b16'; ctx.lineWidth = Math.max(6, r.width / 32);
+          ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = ink; ctx.lineWidth = Math.max(6, r.width / 32);
           paper.style.setProperty('--s', r.width + 'px');
         }
         size();
         function pos(e) { var r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; }
-        cv.addEventListener('pointerdown', function (e) { drawing = true; inked = true; last = pos(e); cv.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fillStyle = '#1f1b16'; ctx.fill(); });
+        cv.addEventListener('pointerdown', function (e) { drawing = true; inked = true; last = pos(e); cv.setPointerCapture(e.pointerId); ctx.beginPath(); ctx.arc(last.x, last.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fillStyle = ink; ctx.fill(); });
         cv.addEventListener('pointermove', function (e) { if (!drawing) return; var p = pos(e); ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke(); last = p; });
         ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (t) { cv.addEventListener(t, function () { drawing = false; }); });
         $('#wClear').onclick = function () { ctx.clearRect(0, 0, cv.width, cv.height); inked = false; };
-        $('#wGuide').onclick = function () { var g = $('#guide'), off = g.style.opacity === '0'; g.style.opacity = off ? '1' : '0'; this.innerHTML = icon('eye', 'i-sm') + (off ? 'ซ่อนตัวแบบ' : 'แสดงตัวแบบ'); };
+        $('#wGuide').onclick = function () { var g = $('#guide'), off = g.style.opacity === '0'; g.style.opacity = off ? '1' : '0'; $('#kv').style.opacity = off ? '1' : '0'; this.innerHTML = icon('eye', 'i-sm') + (off ? 'ซ่อนตัวแบบ' : 'แสดงตัวแบบ'); };
         $('#wPrev').onclick = function () { go(-1); };
         $('#wNext').onclick = function () { if (inked) { S.stats.written++; addXP(1); } go(1); };
       }
