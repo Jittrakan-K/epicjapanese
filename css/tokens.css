@@ -28,3 +28,31 @@
   --scrim: oklch(21% 0.011 81 / 0.45);
   --side-w: 256px; --control: 40px; --control-sm: 32px; --topbar-h: 60px; --tabbar-h: 64px;
 }
+
+/* โหมดมืด: ink กับ white สลับกัน สติกเกอร์จึงกลายเป็นแบบเนกาทีฟ สีมะนาวเข้มขึ้นให้ตัวหนังสือสว่างอ่านได้ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: oklch(19% 0.012 80); --color-paper-2: oklch(25% 0.014 80); --color-paper-3: oklch(23.5% 0.012 82);
+  --color-ink: oklch(94% 0.012 85); --color-ink-2: oklch(85% 0.014 82); --color-muted: oklch(70% 0.016 70);
+  --color-rule: oklch(33% 0.016 80); --color-white: oklch(17% 0.01 80);
+  --color-accent: oklch(64% 0.2 2); --color-accent-deep: oklch(72% 0.17 2); --color-accent-2: oklch(46% 0.115 119); --color-slot: oklch(29% 0.05 355);
+  --color-accent-ink: oklch(99.5% 0.003 82); --color-focus: oklch(72% 0.17 2);
+  --color-error: oklch(70% 0.16 27); --color-success: oklch(74% 0.13 150);
+  --shadow-card: 5px 6px 0 oklch(7% 0.01 80); --shadow-press: 1px 1px 0 oklch(7% 0.01 80); --shadow-tile: 3px 4px 0 oklch(7% 0.01 80);
+  --on-n5: var(--color-ink); --on-n4: var(--color-ink);
+  --scrim: oklch(5% 0.01 80 / 0.6);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --color-paper: oklch(19% 0.012 80); --color-paper-2: oklch(25% 0.014 80); --color-paper-3: oklch(23.5% 0.012 82);
+    --color-ink: oklch(94% 0.012 85); --color-ink-2: oklch(85% 0.014 82); --color-muted: oklch(70% 0.016 70);
+    --color-rule: oklch(33% 0.016 80); --color-white: oklch(17% 0.01 80);
+    --color-accent: oklch(64% 0.2 2); --color-accent-deep: oklch(72% 0.17 2); --color-accent-2: oklch(46% 0.115 119); --color-slot: oklch(29% 0.05 355);
+    --color-accent-ink: oklch(99.5% 0.003 82); --color-focus: oklch(72% 0.17 2);
+    --color-error: oklch(70% 0.16 27); --color-success: oklch(74% 0.13 150);
+    --shadow-card: 5px 6px 0 oklch(7% 0.01 80); --shadow-press: 1px 1px 0 oklch(7% 0.01 80); --shadow-tile: 3px 4px 0 oklch(7% 0.01 80);
+    --on-n5: var(--color-ink); --on-n4: var(--color-ink);
+    --scrim: oklch(5% 0.01 80 / 0.6);
+  }
+}

@@ -546,6 +546,16 @@
   function closeSheet() { var w = $('#sheet'); w.hidden = true; w.innerHTML = ''; }
 
   /* ================= router ================= */
+  function themePref() { try { return localStorage.getItem('epicjapanese:theme') || 'auto'; } catch (e) { return 'auto'; } }
+  function applyTheme() {
+    var t = themePref(), root = document.documentElement;
+    if (t === 'auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme', t);
+    var dark = t === 'dark' || (t === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    var m = document.querySelector('meta[name="theme-color"]'); if (m) m.setAttribute('content', dark ? '#1f1b16' : '#f4efe6');
+  }
+  function setTheme(t) { try { localStorage.setItem('epicjapanese:theme', t); } catch (e) {} applyTheme(); }
+  applyTheme();
+  if (window.matchMedia) { var mq = matchMedia('(prefers-color-scheme: dark)'); if (mq.addEventListener) mq.addEventListener('change', applyTheme); }
   var mounted = null, lastBase = '';
   function route() {
     var h = location.hash.replace(/^#\/?/, '');
@@ -1824,6 +1834,7 @@
       : '<p class="muted" style="font-size:13px">ไม่พบเสียงภาษาญี่ปุ่นในเครื่องนี้ ติดตั้งเสียงภาษาญี่ปุ่นในการตั้งค่าระบบแล้วโหลดหน้าใหม่</p>';
     return '<div class="page page-narrow"><h1 class="title">ตั้งค่า</h1>' +
       '<div class="card pad" style="margin-top:32px;display:flex;flex-direction:column;gap:24px">' +
+        '<div class="field"><label>ธีม</label><div class="seg">' + [['auto', 'ตามเครื่อง'], ['light', 'สว่าง'], ['dark', 'มืด']].map(function (x) { return '<button data-theme-set="' + x[0] + '" class="' + (themePref() === x[0] ? 'on' : '') + '">' + x[1] + '</button>'; }).join('') + '</div></div>' +
         '<div class="field"><label>เป้า XP ต่อวัน</label><div class="seg">' + [20, 30, 50, 100].map(function (g) { return '<button data-goal="' + g + '" class="' + (st.goal === g ? 'on' : '') + '">' + g + '</button>'; }).join('') + '</div></div>' +
         '<div class="field"><label>ความเร็วเสียงอ่าน <span class="num" id="rateV">' + st.rate.toFixed(2) + '×</span></label><input type="range" min="0.6" max="1.2" step="0.05" value="' + st.rate + '" data-set="rate" class="range"></div>' +
         '<div class="field"><label>เสียงภาษาญี่ปุ่น</label>' + voices + '<div><button class="btn sm" data-say="こんにちは。にほんごを べんきょうしましょう。">' + icon('sound', 'i-sm') + 'ทดลองฟัง</button></div></div>' +
@@ -1843,7 +1854,7 @@
 
   /* ================= events ================= */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy],[data-forget],[data-lg-edit],[data-add-word],[data-add-set],#wmore');
+    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy],[data-forget],[data-lg-edit],[data-add-word],[data-add-set],#wmore,[data-theme-set]');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.hasAttribute('data-say')) {
       e.preventDefault(); speak(t.getAttribute('data-say'));
@@ -1921,6 +1932,7 @@
     if (t.id === 'wmore') { if (WB) { WB.limit += 100; renderWordList(); } return; }
     if (t.hasAttribute('data-add-card')) { addCards([t.getAttribute('data-add-card')]); toast('เพิ่มเข้ากองทบทวนแล้ว'); var ch = t.getAttribute('data-add-card').slice(2); kanjiSheet(ch); var tile = $('[data-kanji="' + ch + '"]'); if (tile) tile.classList.add('learned'); return; }
     if (t.hasAttribute('data-read-done')) { var id = t.getAttribute('data-read-done'); if (!isDone(id)) { markDone(id, 100); addXP(15); } toast('ได้ตราประทับสถานีอ่านแล้ว'); return route(); }
+    if (t.hasAttribute('data-theme-set')) { setTheme(t.getAttribute('data-theme-set')); return route(); }
     if (t.hasAttribute('data-goal')) { S.settings.goal = +t.getAttribute('data-goal'); save(); return route(); }
     if (t.id === 'exp') {
       var blob = new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }), a = document.createElement('a');
@@ -2091,4 +2103,7 @@
 
   safeRoute();
   window.__ejReady = true;
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
+  }
 })();
