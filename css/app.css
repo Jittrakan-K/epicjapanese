@@ -861,3 +861,35 @@ body.gated .main { padding-bottom: var(--space-2xl); }
 .kbox:focus-visible { outline: var(--rule-bar) solid var(--color-focus); outline-offset: 3px; }
 .kbox-hint { text-align: center; margin-top: var(--space-2xs); }
 [hidden] { display: none !important; }
+
+/* ---------- บทอ่าน ---------- */
+#txBox .rline { grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; }
+#txBox .s { font: 400 var(--text-lg)/1.7 var(--font-outlier); overflow-wrap: break-word; }
+#txBox .t { color: var(--color-ink-2); font-size: var(--text-sm); margin-top: var(--space-2xs); }
+#txBox.hideth .t { display: none; }
+.txq { margin-top: var(--space-md); }
+.txq .qt { font-weight: 700; }
+.txopts { display: grid; gap: var(--space-xs); margin-top: var(--space-sm); }
+.txopts .qopt { text-align: left; }
+
+/* ---------- ข้อสอบจำลองและวัดระดับ ---------- */
+.exhead { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-sm); position: sticky; top: 0; z-index: var(--z-raised); background: var(--color-paper); padding: var(--space-xs) 0; }
+.extime { font-weight: 700; padding: var(--space-2xs) var(--space-sm); border-radius: var(--radius-pill); background: var(--color-paper-2); }
+.extime.low { background: var(--color-accent); color: var(--color-accent-ink); }
+#exTabs { flex-wrap: wrap; }
+.exsec { margin-top: var(--space-lg); }
+.expass { margin-top: var(--space-md); }
+.expass p { font: 400 var(--text-lg)/1.8 var(--font-outlier); margin-top: var(--space-2xs); }
+.expass details p { font: inherit; }
+.exq { display: flex; gap: var(--space-sm); margin-top: var(--space-md); padding: var(--space-md); }
+.exn { flex: none; width: 28px; height: 28px; display: grid; place-items: center; border-radius: var(--radius-pill); background: var(--color-paper-2); font-weight: 700; font-size: var(--text-xs); }
+.exb { flex: 1; min-width: 0; }
+.exb .kind { font-size: var(--text-xs); font-weight: 700; color: var(--color-muted); }
+.exp { font-size: var(--text-lg); margin: var(--space-2xs) 0 var(--space-sm); overflow-wrap: break-word; }
+.exp.jp { font: 400 var(--text-xl)/1.5 var(--font-outlier); }
+.exp .exs { font-size: var(--text-md); color: var(--color-ink-2); margin-top: var(--space-2xs); }
+.exopts { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--space-xs); }
+.exopts .qopt { text-align: left; }
+.qopt.sel { border-color: var(--color-ink); background: var(--color-accent-2); }
+.exbars { display: grid; gap: var(--space-xs); text-align: left; max-width: 480px; margin: 0 auto; }
+@media (max-width: 60rem) { .exhead { top: var(--topbar-h); } }

@@ -3,13 +3,14 @@
    หน้าเว็บหลัก: ลองเน็ตก่อน ถ้าไม่มีเน็ตใช้ของในเครื่อง
    ฟอนต์จาก Google: เก็บไว้ครั้งแรกแล้วใช้ของในเครื่อง
    การล็อกอินและซิงก์ (Firebase) ไม่ผ่านไฟล์นี้ */
-var VERSION = 'k2n1-v1';
+var VERSION = 'k2n1-v2';
 var CORE = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/tokens.css',
   'js/app.js', 'js/cloud.js',
   'data/kana.js', 'data/n5.js', 'data/n4.js', 'data/n3.js', 'data/n2.js', 'data/n1.js',
-  'data/bank.js', 'data/talk.js', 'data/pitch.js', 'data/strokes.js', 'data/extra.js',
+  'data/bank.js', 'data/talk.js', 'data/pitch.js', 'data/gx-a.js', 'data/gx-b.js', 'data/reads.js',
+  'data/strokes/kana.json', 'data/strokes/n5.json', 'data/strokes/n4.json',
   'assets/mark.svg', 'assets/icon-192.png', 'assets/apple-touch-icon.png', 'assets/favicon-32.png'
 ];
 

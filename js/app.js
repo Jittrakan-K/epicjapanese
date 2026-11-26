@@ -594,6 +594,9 @@
         else if (parts[1] === 'listen') r = viewPracticeQuiz('listen', BW[parts[2]] ? parts[2] : 'n5');
         else r = viewSpeak(parts[1]);
         setNav('speak'); break;
+      case 'texts': r = parts[1] === 'x' ? (RID[parts[2]] ? viewText(RID[parts[2]]) : viewMissing()) : viewTexts(parts[1]); setNav('practice'); break;
+      case 'exam': r = BW[parts[1]] ? viewExam(parts[1]) : viewExamHub(); setNav('practice'); break;
+      case 'placement': r = viewPlacement(); setNav('practice'); break;
       case 'kana': r = viewKana(parts[1] || 'hira'); setNav('kana'); break;
       case 'drill': r = viewDrill(parts[1] || 'hira'); setNav('kana'); break;
       case 'kanji': r = viewKanji(parts[1]); setNav('kanji'); break;
@@ -642,7 +645,7 @@
     var html =
       '<div class="page">' +
         '<h1 class="title">แผนที่การเรียน</h1>' +
-        '<p class="lead">จากศูนย์ถึง N1 ใน ' + LEVELS.length + ' สาย ' + total + ' สถานี สอบท้ายบทผ่าน 80% รับตราประทับ</p>' +
+        '<p class="lead">จากศูนย์ถึง N1 ใน ' + LEVELS.length + ' สาย ' + total + ' สถานี สอบท้ายบทผ่าน 80% รับตราประทับ' + (doneCount() ? '' : ' <a href="#/placement">เคยเรียนมาแล้ว? วัดระดับ</a>') + '</p>' +
 
         '<div class="split">' +
           '<div class="ticket">' +
@@ -1035,6 +1038,7 @@
     TALK.forEach(function (t) { TID[t.id] = t; t.lines.forEach(function (x) { add(t.lv, x[1], x[2], x[3]); }); });
     GRAMMAR.forEach(function (g) { add(g.level.id, g.ex, g.r, g.th); });
     LEVELS.forEach(function (lv) { ((lv.reading || {}).lines || []).forEach(function (x) { add(lv.id, x[0], x[2], x[1]); }); });
+    (window.EJ_READS || []).forEach(function (t) { t.lines.forEach(function (x) { if (x[0].length > 6) add(t.lv, x[0], '', x[1]); }); });
   })();
   var SP_N = 10;
 
@@ -1310,6 +1314,233 @@
     });
     root.addEventListener('keydown', function (e) { if (e.target.id === 'hType' && e.key === 'Enter') { e.preventDefault(); $('#hCheck').click(); } });
     root.addEventListener('change', function (e) { if (e.target.id === 'hHide') { var a = $('.spans'); if (a) a.classList.toggle('blur', e.target.checked); } });
+  }
+
+  /* ================= บทอ่านพร้อมคำถาม (data/reads.js) ================= */
+  var READS = window.EJ_READS || [], RID = {};
+  READS.forEach(function (r) { RID[r.id] = r; });
+  function viewTexts(lid) {
+    lid = BW[lid] ? lid : 'n5';
+    var counts = {}; BLV.forEach(function (l) { counts[l] = READS.filter(function (r) { return r.lv === l; }).length; });
+    var list = READS.filter(function (r) { return r.lv === lid; });
+    return '<div class="page"><h1 class="title">บทอ่าน</h1><p class="lead">อ่านเรื่องสั้นแล้วตอบคำถามจับใจความ ฟังเสียงอ่านได้ทุกประโยค</p>' +
+      '<div class="row-actions" style="margin-top:24px">' + lvSeg('texts', lid, counts) + '</div>' +
+      '<section class="section"><div class="pcards">' + list.map(function (r) {
+        return '<a class="card pcard" href="#/texts/x/' + r.id + '"><span class="pj jp">' + esc(r.jp) + '</span><span class="pt">' + esc(r.title) + '</span><span class="pd">' + r.lines.length + ' ประโยค, คำถาม ' + r.qs.length + ' ข้อ</span>' + bestBadge('rd:' + r.id) + '</a>';
+      }).join('') + '</div></section></div>';
+  }
+  function viewText(r) {
+    var lv = LVID[r.lv], all = r.lines.map(function (l) { return l[0]; }).join('');
+    var ans = [];
+    var html = '<div class="page page-narrow"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/texts/' + r.lv + '">บทอ่าน ' + esc(lv.code) + '</a></nav>' +
+      '<h1 class="title title-s">' + esc(r.title) + '</h1><p class="lead jp">' + esc(r.jp) + '</p>' +
+      '<div class="row-actions" style="margin:24px 0 16px"><button class="btn sm" data-say="' + esc(all) + '">' + icon('play', 'i-sm') + 'ฟังทั้งบท</button><label class="toggle"><input type="checkbox" id="txTh">แสดงคำแปล</label></div>' +
+      '<div class="card pad hideth" id="txBox">' + r.lines.map(function (l, i) {
+        return '<div class="rline"><span class="n">' + (i + 1) + '</span><div class="body"><div class="s jp">' + esc(l[0]) + '</div><div class="t">' + esc(l[1]) + '</div></div>' + sayBtn(l[0]) + '</div>';
+      }).join('') + '</div>' +
+      '<section class="section"><div class="section-head"><h2 class="h2">คำถาม</h2></div>' + r.qs.map(function (q, qi) {
+        return '<div class="card pad txq" id="txq' + qi + '"><div class="qt"><b class="num">' + (qi + 1) + '.</b> ' + esc(q[0]) + '</div><div class="txopts">' + q[1].map(function (o, oi) {
+          return '<button class="qopt" data-rq="' + qi + '" data-ro="' + oi + '"><span class="key">' + (oi + 1) + '</span><span>' + esc(o) + '</span></button>';
+        }).join('') + '</div></div>';
+      }).join('') + '<div id="txEnd"></div></section></div>';
+    return { html: html, mount: function () {
+      var root = $('.page');
+      root.addEventListener('change', function (e) { if (e.target.id === 'txTh') $('#txBox').classList.toggle('hideth', !e.target.checked); });
+      root.addEventListener('click', function (e) {
+        var b = e.target.closest('[data-rq]'); if (!b) return;
+        var qi = +b.getAttribute('data-rq'), oi = +b.getAttribute('data-ro'); if (ans[qi] != null) return;
+        var q = r.qs[qi]; ans[qi] = oi === q[2];
+        $$('#txq' + qi + ' .qopt').forEach(function (x, k) { x.disabled = true; if (k === q[2]) x.classList.add('ok'); else if (k === oi) x.classList.add('bad'); });
+        if (ans.filter(function (x) { return x != null; }).length === r.qs.length) {
+          var pct = Math.round(ans.filter(Boolean).length / r.qs.length * 100);
+          $('#txEnd').innerHTML = spResult('rd:' + r.id, pct, '#/texts/x/' + r.id, '#/texts/' + r.lv, pct === 100 ? 'ตอบถูกทุกข้อ เข้าใจเรื่องทั้งหมดแล้ว' : 'เปิดคำแปลแล้วอ่านทวนข้อที่ผิดอีกรอบ');
+          var bk = $('#txEnd .btn:not(.primary)'); if (bk) bk.textContent = 'กลับหน้าบทอ่าน';
+          $('#txBox').classList.remove('hideth'); $('#txTh').checked = true;
+        }
+      });
+    } };
+  }
+
+  /* ================= ข้อสอบจำลอง JLPT และวัดระดับ ================= */
+  var HASK = /[一-鿿]/;
+  function mcq(prompt, right, pool, o) {
+    o = o || {};
+    var wrong = pick(uniqBy(pool.filter(function (x) { return x && x !== right; }), function (x) { return x; }), 3);
+    var opts = shuffle([right].concat(wrong));
+    return { prompt: prompt, opts: opts, a: opts.indexOf(right), jp: !!o.jp, say: o.say || '', pjp: !!o.pjp, sub: o.sub || '' };
+  }
+  function qVocabRead(lid, n) {
+    var list = BW[lid].filter(function (c) { return HASK.test(c.w) && c.w !== c.r; }), rs = list.map(function (c) { return c.r; });
+    return pick(list, n).map(function (c) { return mcq(esc(c.w), c.r, rs.filter(function (r) { return Math.abs(r.length - c.r.length) <= 1; }).concat(rs), { jp: true, pjp: true, sub: 'คำนี้อ่านว่าอะไร' }); });
+  }
+  function qVocabMean(lid, n) {
+    var list = BW[lid], ms = list.map(function (c) { return c.m; });
+    return pick(list, n).map(function (c) { return mcq(esc(c.w), c.m, ms, { pjp: true, sub: 'ความหมายคือ' }); });
+  }
+  function qGrammar(lid, n) {
+    var list = GRAMMAR.filter(function (g) { return g.level.id === lid; }), ms = list.map(function (g) { return g.m; }), ps = list.map(function (g) { return g.p; });
+    return pick(list, n).map(function (g, i) {
+      return i % 2 ? mcq(esc(g.m), g.p, ps, { jp: true, sub: 'รูปประโยคใดมีความหมายนี้' })
+        : mcq(esc(g.p) + '<div class="exs jp">' + esc(g.ex) + '</div>', g.m, ms, { pjp: true, sub: 'รูปประโยคนี้หมายความว่า' });
+    });
+  }
+  function qListen(lid, n) {
+    var pool = SENT[lid] || [], ths = pool.map(function (x) { return x.th; });
+    return pick(pool, n).map(function (x) { return mcq('', x.th, ths, { say: x.jp, sub: 'ฟังแล้วเลือกความหมาย' }); });
+  }
+  function qKana(n) {
+    var all = KANA_ALL.filter(function (k) { return k.ch.length === 1; }), ros = all.map(function (k) { return k.ro; });
+    return pick(all, n).map(function (k) { return mcq(esc(k.ch), k.ro, ros, { pjp: true, sub: 'ตัวนี้อ่านว่า' }); });
+  }
+  var EXAM_MIN = { n5: 30, n4: 35, n3: 45, n2: 50, n1: 55 };
+  function buildExam(lid) {
+    var reads = READS.filter(function (r) { return r.lv === lid; }), rd = reads.length ? pick(reads, 1)[0] : null;
+    var secs = [
+      { key: 'v', title: 'คำศัพท์และตัวอักษร', jp: '文字・語彙', qs: qVocabRead(lid, 7).concat(qVocabMean(lid, 8)) },
+      { key: 'g', title: 'ไวยากรณ์', jp: '文法', qs: qGrammar(lid, 10) },
+      { key: 'r', title: 'การอ่าน', jp: '読解', passage: rd, qs: rd ? rd.qs.map(function (q) { return { prompt: esc(q[0]), opts: q[1], a: q[2] }; }) : [] },
+      { key: 'l', title: 'การฟัง', jp: '聴解', qs: qListen(lid, 8) }
+    ];
+    return secs.filter(function (s) { return s.qs.length; });
+  }
+  function examQHTML(q, si, qi, ans, done) {
+    return '<div class="card exq" id="eq' + si + '-' + qi + '"><div class="exn num">' + (qi + 1) + '</div><div class="exb">' +
+      (q.sub ? '<div class="kind">' + esc(q.sub) + '</div>' : '') +
+      (q.say ? '<div class="row-actions">' + sayBtn(q.say, 'ฟังประโยค') + '<button class="btn sm ghost" data-say-slow="' + esc(q.say) + '">' + icon('sound', 'i-sm') + 'ช้าลง</button></div>' : '') +
+      (q.prompt ? '<div class="exp' + (q.pjp ? ' jp' : '') + '">' + q.prompt + '</div>' : '') +
+      '<div class="exopts">' + q.opts.map(function (o, oi) {
+        var cls = 'qopt' + (ans === oi ? ' sel' : '') + (done ? (oi === q.a ? ' ok' : ans === oi ? ' bad' : '') : '');
+        return '<button class="' + cls + '" data-eq="' + si + '-' + qi + '-' + oi + '"' + (done ? ' disabled' : '') + '><span class="key">' + (oi + 1) + '</span><span' + (q.jp ? ' class="jp"' : '') + '>' + esc(o) + '</span></button>';
+      }).join('') + '</div>' + (done && q.say ? '<div class="muted small jp" style="margin-top:8px">' + esc(q.say) + '</div>' : '') + '</div></div>';
+  }
+  var EX = null;
+  function viewExamHub() {
+    return '<div class="page"><h1 class="title">ข้อสอบจำลอง JLPT</h1><p class="lead">แบ่งเป็นสี่พาร์ตเหมือนสอบจริง คำศัพท์ ไวยากรณ์ การอ่าน และการฟัง มีเวลาจำกัด สุ่มข้อใหม่ทุกครั้ง</p>' +
+      '<div class="pcards" style="margin-top:24px">' + BLV.map(function (l) {
+        var lv = LVID[l];
+        return '<a class="card pcard" href="#/exam/' + l + '" style="' + lvVars(lv) + '"><span class="pj">' + lvChip(lv) + '</span><span class="pt">ข้อสอบจำลอง ' + esc(lv.code) + '</span><span class="pd">' + EXAM_MIN[l] + ' นาที</span>' + bestBadge('ex:' + l) + '</a>';
+      }).join('') + '</div>' +
+      '<div class="card spinfo" style="margin-top:24px"><p><b>เกณฑ์ผ่านในหน้านี้:</b> คะแนนรวม 55% ขึ้นไป และทุกพาร์ตต้องได้อย่างน้อย 33% ใกล้เคียงกับเกณฑ์ของสอบจริง</p><p class="muted small" style="margin-top:8px">ข้อสอบจริงมีรูปแบบคำถามหลากหลายกว่านี้ ใช้หน้านี้วัดความพร้อมคร่าวๆ ก่อนสมัครสอบ</p></div></div>';
+  }
+  function viewExam(lid) {
+    var secs = buildExam(lid), lv = LVID[lid];
+    EX = { lid: lid, secs: secs, si: 0, ans: secs.map(function () { return []; }), end: Date.now() + EXAM_MIN[lid] * 60000, done: false, timer: null };
+    return {
+      html: '<div class="page page-narrow"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/exam">ข้อสอบจำลอง</a></nav>' +
+        '<div class="exhead"><h1 class="title title-s">ข้อสอบจำลอง ' + esc(lv.code) + '</h1><div class="extime num" id="exTime" role="timer" aria-live="off"></div></div>' +
+        '<div class="seg" id="exTabs" style="margin-top:16px">' + secs.map(function (s, i) { return '<button data-exs="' + i + '">' + esc(s.title) + '</button>'; }).join('') + '</div>' +
+        '<div id="exBox"></div></div>',
+      mount: exMount, destroy: function () { if (EX && EX.timer) clearInterval(EX.timer); EX = null; if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+    };
+  }
+  function exRender() {
+    if (!EX) return;
+    var s = EX.secs[EX.si], box = $('#exBox');
+    $$('#exTabs button').forEach(function (b, i) { var n = EX.ans[i].filter(function (x) { return x != null; }).length; b.classList.toggle('on', i === EX.si); b.innerHTML = esc(EX.secs[i].title) + ' <span class="num">' + n + '/' + EX.secs[i].qs.length + '</span>'; });
+    box.innerHTML = '<div class="exsec"><h2 class="h2">' + esc(s.title) + ' <span class="jp muted">' + s.jp + '</span></h2>' +
+      (s.passage ? '<div class="card pad expass"><div class="h3 jp">' + esc(s.passage.jp) + '</div>' + s.passage.lines.map(function (l) { return '<p class="jp">' + esc(l[0]) + '</p>'; }).join('') + (EX.done ? '<details style="margin-top:12px"><summary>คำแปล</summary>' + s.passage.lines.map(function (l) { return '<p>' + esc(l[1]) + '</p>'; }).join('') + '</details>' : '') + '</div>' : '') +
+      s.qs.map(function (q, qi) { return examQHTML(q, EX.si, qi, EX.ans[EX.si][qi], EX.done); }).join('') + '</div>' +
+      (EX.done ? '' : '<div class="row-actions" style="justify-content:space-between;margin-top:24px">' +
+        (EX.si ? '<button class="btn ghost" data-exs="' + (EX.si - 1) + '">' + icon('left', 'i-sm') + 'พาร์ตก่อนหน้า</button>' : '<span></span>') +
+        (EX.si < EX.secs.length - 1 ? '<button class="btn primary" data-exs="' + (EX.si + 1) + '">พาร์ตถัดไป' + icon('arrow', 'i-sm') + '</button>' : '<button class="btn primary" id="exSubmit">ส่งคำตอบ</button>') + '</div>') +
+      '<div id="exRes"></div>';
+    if (EX.done) exResult();
+  }
+  function exScores() {
+    return EX.secs.map(function (s, i) { var ok = s.qs.filter(function (q, qi) { return EX.ans[i][qi] === q.a; }).length; return { title: s.title, ok: ok, n: s.qs.length, pct: Math.round(ok / s.qs.length * 100) }; });
+  }
+  function exResult() {
+    var sc = exScores(), ok = sc.reduce(function (a, b) { return a + b.ok; }, 0), n = sc.reduce(function (a, b) { return a + b.n; }, 0), pct = Math.round(ok / n * 100);
+    var pass = pct >= 55 && sc.every(function (x) { return x.pct >= 33; });
+    if (!EX.saved) { EX.saved = true; var prev = best('ex:' + EX.lid); if (pct > prev) S.drill['ex:' + EX.lid] = pct; addXP(Math.round(pct / 10)); save(); }
+    $('#exRes').innerHTML = '<div class="card result" style="margin-top:24px">' + (pass ? '<span class="hanko lg stamp-in" style="' + lvVars(LVID[EX.lid]) + '">合格<small>' + pct + '%</small></span>' : '') +
+      '<div class="score">' + pct + '<span class="muted" style="font-size:24px">%</span></div><p class="lead" style="margin:8px auto 16px">' + (pass ? 'ผ่านเกณฑ์ ' + esc(LVID[EX.lid].code) + ' พร้อมลองสอบจริงได้' : 'ยังไม่ผ่านเกณฑ์ ดูพาร์ตที่คะแนนต่ำแล้วทบทวนเพิ่ม') + '</p>' +
+      '<div class="exbars">' + sc.map(function (x) { return '<div class="lp-row"><span>' + esc(x.title) + '</span><div class="bar"><i style="transform:scaleX(' + (x.pct / 100) + ')"></i></div><span class="num">' + x.ok + ' / ' + x.n + '</span></div>'; }).join('') + '</div>' +
+      '<p class="muted small" style="margin-top:12px">ดูเฉลยได้ในแต่ละพาร์ตด้านบน</p>' +
+      '<div class="row-actions" style="justify-content:center;margin-top:16px"><a class="btn primary" href="#/exam/' + EX.lid + '" data-reload>' + icon('redo', 'i-sm') + 'สอบชุดใหม่</a><a class="btn" href="#/exam">กลับ</a></div></div>';
+  }
+  function exSubmit() { if (!EX || EX.done) return; EX.done = true; clearInterval(EX.timer); var t = $('#exTime'); if (t) t.textContent = 'ส่งแล้ว'; exRender(); var r = $('#exRes'); if (r && r.scrollIntoView) r.scrollIntoView({ block: 'start' }); }
+  function exMount() {
+    function tick() {
+      if (!EX) return; var left = Math.max(0, EX.end - Date.now()), m = Math.floor(left / 60000), sec = Math.floor(left / 1000) % 60, t = $('#exTime');
+      if (t) { t.textContent = 'เหลือ ' + m + ':' + pad2(sec); t.classList.toggle('low', left < 5 * 60000); }
+      if (!left) { toast('หมดเวลา ส่งคำตอบอัตโนมัติแล้ว'); exSubmit(); }
+    }
+    EX.timer = setInterval(tick, 1000); tick(); exRender();
+    $('.page').addEventListener('click', function (e) {
+      var t = e.target.closest('[data-exs],[data-eq],#exSubmit,[data-say-slow]'); if (!t || !EX) return;
+      if (t.hasAttribute('data-say-slow')) return speak(t.getAttribute('data-say-slow'), { slow: true });
+      if (t.id === 'exSubmit') {
+        var miss = EX.ans.reduce(function (a, arr, i) { return a + EX.secs[i].qs.length - arr.filter(function (x) { return x != null; }).length; }, 0);
+        if (miss && !t.dataset.sure) { t.dataset.sure = 1; t.textContent = 'ยังไม่ได้ตอบ ' + miss + ' ข้อ กดอีกครั้งเพื่อส่ง'; return; }
+        return exSubmit();
+      }
+      if (t.hasAttribute('data-exs')) { EX.si = +t.getAttribute('data-exs'); exRender(); window.scrollTo(0, 0); return; }
+      if (EX.done) return;
+      var p = t.getAttribute('data-eq').split('-').map(Number); EX.ans[p[0]][p[1]] = p[2];
+      $$('#eq' + p[0] + '-' + p[1] + ' .qopt').forEach(function (b, k) { b.classList.toggle('sel', k === p[2]); });
+      var tb = $$('#exTabs button')[p[0]]; if (tb) tb.innerHTML = esc(EX.secs[p[0]].title) + ' <span class="num">' + EX.ans[p[0]].filter(function (x) { return x != null; }).length + '/' + EX.secs[p[0]].qs.length + '</span>';
+    });
+  }
+
+  /* วัดระดับ: ไล่จากคานะขึ้นไปทีละระดับ ระดับละ 6 ข้อ ได้ 5 ข้อขึ้นไปจึงขึ้นระดับถัดไป */
+  var PL = null, PL_ORDER = ['kana', 'n5', 'n4', 'n3', 'n2', 'n1'];
+  function plQs(lid) {
+    if (lid === 'kana') return qKana(6);
+    return shuffle(qVocabMean(lid, 2).concat(qVocabRead(lid, 2), qGrammar(lid, 2)));
+  }
+  function viewPlacement() {
+    PL = { step: -1, li: 0, qs: [], qi: 0, ok: 0, passed: [] };
+    return { html: '<div class="page page-narrow"><h1 class="title">วัดระดับ</h1><div id="plBox"></div></div>', mount: plMount, destroy: function () { PL = null; } };
+  }
+  function plRender() {
+    var box = $('#plBox'); if (!box || !PL) return;
+    if (PL.step < 0) {
+      box.innerHTML = '<p class="lead">สำหรับคนที่เคยเรียนมาแล้ว ทดสอบตั้งแต่คานะขึ้นไปทีละระดับ ระดับละ 6 ข้อ ถ้าตอบถูก 5 ข้อขึ้นไปจะขึ้นระดับถัดไป ใช้เวลาประมาณ 5 ถึง 10 นาที</p>' +
+        '<div class="card spinfo" style="margin-top:16px"><p>ถ้าไม่รู้คำตอบ ให้กด "ไม่รู้" แทนการเดา ผลจะแม่นกว่า</p></div>' +
+        '<div class="row-actions" style="margin-top:24px"><button class="btn primary lg" id="plStart">เริ่มวัดระดับ</button></div>';
+      return;
+    }
+    if (PL.step === 1) {
+      var top = PL.passed.length, startLv = PL_ORDER[Math.min(top, PL_ORDER.length - 1)], lv = LVID[startLv];
+      var skip = PL.passed.map(function (l) { return LVID[l]; });
+      box.innerHTML = '<div class="card result"><div class="kind">ระดับที่แนะนำให้เริ่ม</div><div style="margin:16px 0">' + lvChip(lv) + '</div>' +
+        '<p class="lead" style="margin:0 auto">' + (top ? 'ผ่าน ' + skip.map(function (l) { return esc(l.code); }).join(', ') + ' แล้ว ' : 'แนะนำให้เริ่มจากคานะ ') + (top === PL_ORDER.length ? 'ผ่านทุกระดับ ลองทำข้อสอบจำลอง N1 ดู' : 'เริ่มเรียนที่' + esc(lv.title)) + '</p>' +
+        (top ? '<label class="toggle" style="justify-content:center;margin-top:16px"><input type="checkbox" id="plCards">เพิ่มคำศัพท์และคันจิของระดับที่ข้ามเข้ากองทบทวนด้วย</label>' +
+          '<div class="row-actions" style="justify-content:center;margin-top:24px"><button class="btn primary" id="plApply">ข้ามระดับที่ผ่านบนแผนที่</button><a class="btn" href="#/">ยังไม่ข้าม กลับแผนที่</a></div>'
+          : '<div class="row-actions" style="justify-content:center;margin-top:24px"><a class="btn primary" href="#/">ไปแผนที่การเรียน</a></div>') + '</div>';
+      return;
+    }
+    var q = PL.qs[PL.qi], lid = PL_ORDER[PL.li];
+    box.innerHTML = '<div class="quiz-top"><div class="bar"><i style="transform:scaleX(' + ((PL.li * 6 + PL.qi) / (PL_ORDER.length * 6)) + ')"></i></div><span class="num muted" style="font-size:12px">' + esc(LVID[lid].code) + ' ข้อ ' + (PL.qi + 1) + '/6</span></div>' +
+      examQHTML(q, 0, PL.qi, null, false) + '<div class="row-actions" style="justify-content:flex-end;margin-top:12px"><button class="btn ghost" data-eq="0-' + PL.qi + '--1">ไม่รู้</button></div>';
+  }
+  function plAnswer(oi) {
+    var q = PL.qs[PL.qi]; if (oi === q.a) PL.ok++;
+    PL.qi++;
+    if (PL.qi < PL.qs.length) return plRender();
+    var lid = PL_ORDER[PL.li];
+    if (PL.ok >= 5) { PL.passed.push(lid); PL.li++; }
+    if (PL.ok < 5 || PL.li >= PL_ORDER.length) { PL.step = 1; return plRender(); }
+    PL.qs = plQs(PL_ORDER[PL.li]); PL.qi = 0; PL.ok = 0; plRender();
+  }
+  function plMount() {
+    plRender();
+    $('.page').addEventListener('click', function (e) {
+      var t = e.target.closest('#plStart,[data-eq],#plApply'); if (!t || !PL) return;
+      if (t.id === 'plStart') { PL.step = 0; PL.qs = plQs('kana'); return plRender(); }
+      if (t.id === 'plApply') {
+        var cards = $('#plCards') && $('#plCards').checked, ids = [];
+        PL.passed.forEach(function (l) {
+          var lv = LVID[l];
+          lv.stations.forEach(function (st) { if (!S.done[st.id]) S.done[st.id] = { at: dayKey(), score: 0, placed: true }; });
+          if (cards) lv.lessons.forEach(function (ls) { ids = ids.concat(lessonCardIds(ls)); });
+        });
+        if (ids.length) addCards(ids);
+        save(); toast('ข้ามระดับที่ผ่านแล้ว'); location.hash = '#/'; return;
+      }
+      var p = t.getAttribute('data-eq').split('-'); plAnswer(p.length > 3 ? -1 : +p[2]);
+    });
   }
 
   /* ================= review (SRS) ================= */
@@ -1650,7 +1881,10 @@
     var html = '<div class="page"><h1 class="title">แบบฝึกหัด</h1>' +
       '<p class="lead">ฝึกตั้งแต่ตัวอักษรตัวแรกจนถึงคำศัพท์และคันจิ N1 ทีละชุด ชุดละ ' + SET_N + ' ข้อ ได้ 80% ขึ้นไปถือว่าผ่าน</p>';
     if (!kind) {
-      html += '<section class="section"><a class="card pcard wide spgo" href="#/speak">' + icon('mic') + '<span class="pt">ฝึกพูดและฟัง</span><span class="pd">บทสนทนา ' + TALK.length + ' บท พูดตาม แปลแล้วพูด ฟังจับใจความ เว็บฟังเสียงแล้วให้คะแนน</span></a></section>';
+      html += '<section class="section"><a class="card pcard wide spgo" href="#/speak">' + icon('mic') + '<span class="pt">ฝึกพูดและฟัง</span><span class="pd">บทสนทนา ' + TALK.length + ' บท พูดตาม แปลแล้วพูด ฟังจับใจความ เว็บฟังเสียงแล้วให้คะแนน</span></a>' +
+        '<div class="pcards" style="margin-top:16px"><a class="card pcard" href="#/texts">' + icon('book') + '<span class="pt">บทอ่าน</span><span class="pd">' + READS.length + ' เรื่องพร้อมคำถามจับใจความ</span></a>' +
+        '<a class="card pcard" href="#/exam">' + icon('check') + '<span class="pt">ข้อสอบจำลอง JLPT</span><span class="pd">จับเวลา แบ่งพาร์ตเหมือนสอบจริง</span></a>' +
+        '<a class="card pcard" href="#/placement">' + icon('target') + '<span class="pt">วัดระดับ</span><span class="pd">เคยเรียนมาแล้ว ทดสอบเพื่อข้ามไปเริ่มระดับที่เหมาะ</span></a></div></section>';
       html += '<section class="section"><div class="section-head"><h2 class="h2">เริ่มจากศูนย์: คานะ</h2><a class="btn sm ghost" href="#/write">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a></div>' +
         '<div class="pcards">' + KANA_DRILLS.map(function (d) {
           return '<a class="card pcard" href="#/practice/kana/' + d.key + '"><span class="pj jp">' + esc(d.jp) + '</span><span class="pt">' + esc(d.title) + '</span>' + bestBadge('kana:' + d.key) + '</a>';
@@ -1908,7 +2142,7 @@
       '<p class="muted" style="font-size:12px;margin-top:24px">เนื้อหาเป็นชุดเริ่มต้นสำหรับแต่ละระดับ ใช้คู่กับหนังสือเรียนและข้อสอบเก่าจะได้ผลดีที่สุด ไอคอนจาก Lucide</p></div>';
   }
   function viewMore() {
-    var items = [['#/account', 'user', 'บัญชี'], ['#/words', 'words', 'คลังคำศัพท์'], ['#/practice', 'target', 'แบบฝึกหัด'], ['#/speak', 'mic', 'ฝึกพูด'], ['#/kana', 'grid', 'ตารางคานะ'], ['#/kanji', 'type', 'คันจิ'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
+    var items = [['#/account', 'user', 'บัญชี'], ['#/words', 'words', 'คลังคำศัพท์'], ['#/practice', 'target', 'แบบฝึกหัด'], ['#/speak', 'mic', 'ฝึกพูด'], ['#/texts', 'book', 'บทอ่าน'], ['#/kana', 'grid', 'ตารางคานะ'], ['#/kanji', 'type', 'คันจิ'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
     return '<div class="page page-narrow"><h1 class="title">เมนู</h1><div class="card" style="margin-top:24px">' + items.map(function (x) {
       return '<a class="list-row" href="' + x[0] + '">' + icon(x[1], 'muted') + '<span class="grow">' + x[2] + '</span>' + icon('right', 'muted') + '</a>';
     }).join('') + '</div></div>';
