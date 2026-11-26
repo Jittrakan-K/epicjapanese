@@ -94,6 +94,12 @@
     add({ id: lv.id + '-read', kind: 'reading', title: 'บทอ่าน: ' + lv.reading.title, jp: lv.id === 'kana' ? '看板' : '読解' });
     add({ id: lv.id + '-exam', kind: 'exam', title: 'สอบท้าย' + lv.title, jp: '試験' });
   });
+  /* คลังไวยากรณ์เพิ่มเติม (data/gx-a.js, gx-b.js) ไม่ผูกกับสถานีบนแผนที่ */
+  LEVELS.forEach(function (lv) {
+    var arr = (window.EJ_GX || {})[lv.id]; if (!arr) return;
+    var ls = { id: 'gx-' + lv.id, title: 'คลังไวยากรณ์เพิ่มเติม', extra: true };
+    arr.forEach(function (x, i) { var c = { level: lv, lesson: ls, id: 'g:' + ls.id + ':' + i, type: 'g', p: x[0], m: x[1], ex: x[2], th: x[3], note: x[4] || '', extra: true }; GRAMMAR.push(c); CARD[c.id] = c; });
+  });
 
 
   /* ================= bank: คลังคำศัพท์และคันจิ JLPT (data/bank.js) ================= */
@@ -1416,11 +1422,20 @@
   function viewGrammar(lid) {
     var counts = {}; GRAMMAR.forEach(function (g) { counts[g.level.id] = (counts[g.level.id] || 0) + 1; });
     var list = GRAMMAR.filter(function (g) { return !lid || g.level.id === lid; });
-    return '<div class="page page-narrow"><h1 class="title">ไวยากรณ์</h1>' +
-      '<p class="lead">' + GRAMMAR.length + ' รูปประโยคเรียงตามสายและสถานี พร้อมตัวอย่างและคำแปล</p>' +
+    var html = '<div class="page page-narrow"><h1 class="title">ไวยากรณ์</h1>' +
+      '<p class="lead">' + GRAMMAR.length + ' รูปประโยค จากบทเรียนบนแผนที่และคลังเพิ่มเติม พร้อมตัวอย่าง คำแปล และเสียงอ่าน</p>' +
       '<div class="row-actions" style="margin:24px 0 16px">' + levelFilter('grammar', lid, counts) +
         (function () { var ids = list.filter(function (g) { return !S.srs[g.id]; }).map(function (g) { return g.id; }); return ids.length ? '<button class="btn sm" data-add-set="' + esc(ids.join(',')) + '">' + icon('plus', 'i-sm') + 'เพิ่ม ' + ids.length + ' รูปประโยคเข้ากองทบทวน</button>' : '<span class="tag">อยู่ในกองทบทวนครบแล้ว</span>'; })() + '</div>' +
-      list.map(function (g) { return grammarCard(g, true); }).join('') + '</div>';
+      '<input class="input" id="gq" type="search" placeholder="ค้นรูปประโยค ความหมาย หรือตัวอย่าง" style="width:100%;margin-bottom:16px" autocomplete="off">' +
+      '<div id="glist">' + list.map(function (g) { return grammarCard(g, true); }).join('') + '</div><p class="muted" id="gnone" hidden>ไม่พบรูปประโยคที่ค้น</p></div>';
+    return { html: html, mount: function () {
+      var cards = $$('#glist .gcard'), txt = cards.map(function (c) { return c.textContent.toLowerCase(); });
+      $('#gq').addEventListener('input', function () {
+        var q = this.value.trim().toLowerCase(), n = 0;
+        cards.forEach(function (c, i) { var on = !q || txt[i].indexOf(q) > -1; c.hidden = !on; if (on) n++; });
+        $('#gnone').hidden = n > 0;
+      });
+    } };
   }
 
   /* ================= search ================= */

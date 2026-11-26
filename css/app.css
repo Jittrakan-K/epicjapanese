@@ -860,3 +860,4 @@ body.gated .main { padding-bottom: var(--space-2xl); }
 .kbox .ksvg.anim .st { stroke: var(--color-ink); }
 .kbox:focus-visible { outline: var(--rule-bar) solid var(--color-focus); outline-offset: 3px; }
 .kbox-hint { text-align: center; margin-top: var(--space-2xs); }
+[hidden] { display: none !important; }
