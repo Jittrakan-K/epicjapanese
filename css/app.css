@@ -831,3 +831,18 @@ body.gated .main { padding-bottom: var(--space-2xl); }
 .myvoice { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: var(--space-xs); margin-top: var(--space-md); }
 .myvoice audio { height: 36px; max-width: 100%; }
 .flash .back .ex .exr { font-family: var(--font-outlier); font-size: var(--text-xs); }
+
+/* ---------- mobile polish ---------- */
+.qtype .input { min-width: 0; }
+.heat-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
+.heat-scroll:focus-visible { outline: var(--rule-bar) solid var(--color-accent); outline-offset: 2px; }
+@media (max-width: 60rem) {
+  .qtype { padding: 0 var(--space-xs); }
+  .qtype .btn.lg { padding-left: var(--space-md); padding-right: var(--space-md); }
+  .vrow.bank { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 0 var(--space-sm); }
+  .vrow.bank .w { grid-column: 1; grid-row: 1; }
+  .vrow.bank .ro { grid-column: 2; grid-row: 1; align-self: end; padding-bottom: 6px; overflow-wrap: anywhere; }
+  .vrow.bank .me { grid-column: 1 / span 2; grid-row: 2; }
+  .vrow.bank .vacts { grid-column: 3; grid-row: 1 / span 2; flex-direction: row; }
+  .tabbar a span { font-size: 12px; }
+}

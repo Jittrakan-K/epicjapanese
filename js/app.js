@@ -593,6 +593,7 @@
     view.innerHTML = r.html;
     mounted = r;
     try { if (r.mount) r.mount(); } catch (err) { showError(err); }
+    var hs = $('.heat-scroll'); if (hs) hs.scrollLeft = hs.scrollWidth;
     var base = a + '/' + (parts[1] || '');
     if (base !== lastBase) { window.scrollTo(0, 0); lastBase = base; }
     chrome();
@@ -1476,7 +1477,7 @@
         '<div class="card stat"><div class="stat-label">XP สะสม</div><div class="v">' + fmt(totalXP) + '</div><div class="d">เรียน ' + activeDays + ' วัน ต่อเนื่อง ' + streak() + ' วัน</div></div>' +
       '</div>' +
       '<div class="card pad" style="margin-top:16px"><div class="section-head"><h2 class="h2">12 เดือนที่ผ่านมา</h2><span class="muted">สีเข้มเมื่อถึงเป้า ' + g + ' XP</span></div>' +
-        '<div style="overflow-x:auto"><div class="heat-months">' + months.join('') + '</div><div class="heat">' + cols.join('') + '</div></div>' +
+        '<div class="heat-scroll" tabindex="0" aria-label="ปฏิทินกิจกรรม เลื่อนซ้ายขวาได้"><div class="heat-months">' + months.join('') + '</div><div class="heat">' + cols.join('') + '</div></div>' +
         '<div class="heat-legend">น้อย<span class="c h0"></span><span class="c h1"></span><span class="c h2"></span><span class="c h3"></span><span class="c h4"></span>ถึงเป้า</div></div>' +
       '<div class="card pad" style="margin-top:16px"><div class="section-head"><h2 class="h2">รายสาย</h2></div>' + LEVELS.map(function (lv) {
         var c = levelCount(lv), n = lv.stations.length;
