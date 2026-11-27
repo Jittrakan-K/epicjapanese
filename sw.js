@@ -3,7 +3,7 @@
    หน้าเว็บหลัก: ลองเน็ตก่อน ถ้าไม่มีเน็ตใช้ของในเครื่อง
    ฟอนต์จาก Google: เก็บไว้ครั้งแรกแล้วใช้ของในเครื่อง
    การล็อกอินและซิงก์ (Firebase) ไม่ผ่านไฟล์นี้ */
-var VERSION = 'k2n1-v2';
+var VERSION = 'k2n1-v3';
 var CORE = [
   './', 'index.html', 'manifest.webmanifest',
   'css/app.css', 'css/tokens.css',

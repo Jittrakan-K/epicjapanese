@@ -359,6 +359,7 @@
     Object.keys(y.stats).forEach(function (k) { o.stats[k] = Math.max(o.stats[k] || 0, y.stats[k] || 0); });
     Object.keys(y.drill || {}).forEach(function (k) { o.drill[k] = Math.max(o.drill[k] || 0, y.drill[k] || 0); });
     if (y.created && (!o.created || y.created < o.created)) o.created = y.created;
+    if (y.daily && y.daily.day) { var od = o.daily || {}; if (od.day !== y.daily.day) { if (!od.day || y.daily.day > od.day) o.daily = y.daily; } else { ['speak', 'drill', 'cele'].forEach(function (k) { if (y.daily[k]) od[k] = 1; }); od.punched = uniqBy((od.punched || []).concat(y.daily.punched || []), function (x) { return x; }); o.daily = od; } }
     return o;
   }
   function storeLocal() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
@@ -451,7 +452,7 @@
   var KEY = dataKey(me() ? ACC.current : null);
   var LG = { mode: null, id: null, err: '' };
   function defaults() {
-    return { v: 1, created: dayKey(), done: {}, srs: {}, days: {}, stats: { answered: 0, correct: 0, written: 0, reviews: 0 }, drill: {},
+    return { v: 1, created: dayKey(), done: {}, srs: {}, days: {}, stats: { answered: 0, correct: 0, written: 0, reviews: 0 }, drill: {}, daily: {},
       settings: { goal: 30, rate: 0.9, romaji: true, furigana: true, pitch: true, voice: '' } };
   }
   function normData(s) {
@@ -567,8 +568,11 @@
     var h = location.hash.replace(/^#\/?/, '');
     var parts = h.split('/').map(function (p) { try { return decodeURIComponent(p); } catch (e) { return p; } });
     var a = parts[0] || '', r;
+    if (route.skip) { route.skip = false; if (location.hash === route.lastHash) return; }
+    if (mounted && mounted.leave && route.lastHash !== undefined && location.hash !== route.lastHash && !mounted.leave()) { route.skip = true; location.hash = route.lastHash; return; }
     if (mounted && mounted.destroy) mounted.destroy();
     closeSheet();
+    var tst = $('#toast'); if (tst && location.hash !== route.lastHash && !tst.dataset.keep) tst.classList.remove('on'); if (tst) delete tst.dataset.keep; route.lastHash = location.hash;
     if ('speechSynthesis' in window) speechSynthesis.cancel();
     var gated = !me() && !guest;
     document.body.classList.toggle('gated', gated);
@@ -591,6 +595,7 @@
       case 'speak':
         if (parts[1] === 'd') r = TID[parts[2]] ? viewDialog(TID[parts[2]]) : viewMissing();
         else if (parts[1] === 'shadow' || parts[1] === 'say') r = viewSpDrill(parts[1], parts[2]);
+        else if (parts[1] === 'ls') { var sst = SID[parts[2]]; r = sst && sst.lesson ? viewSpDrill('shadow', sst.level.id, { items: lessonSpeakPool(sst), key: 'sp:ls:' + sst.id, title: 'ฝึกพูด: ' + sst.title, crumb: '<a href="#/lesson/' + sst.id + '" class="num">' + sst.code + '</a>', back: '#/', again: '#/speak/ls/' + sst.id }) : viewMissing(); }
         else if (parts[1] === 'listen') r = viewPracticeQuiz('listen', BW[parts[2]] ? parts[2] : 'n5');
         else r = viewSpeak(parts[1]);
         setNav('speak'); break;
@@ -633,6 +638,66 @@
     if (st.kind === 'exam') return '#/quiz/' + st.id;
     return '#/lesson/' + st.id;
   }
+  /* ---------- รอบเรียนวันนี้ (ตั๋วบนหน้าแรก) ---------- */
+  function daily() { var d = dayKey(); if (!S.daily || S.daily.day !== d) S.daily = { day: d, punched: [] }; if (!S.daily.punched) S.daily.punched = []; return S.daily; }
+  function markDaily(k) { var D = daily(); if (!D[k]) { D[k] = 1; save(); } }
+  function speakStation() {
+    var tdy = dayKey(), pick1 = null, last = null;
+    STATIONS.forEach(function (s) { var d = S.done[s.id]; if (!s.lesson || !d || d.placed) return; last = s; if (d.at === tdy) pick1 = s; });
+    var cur = current();
+    return pick1 || last || (cur && cur.lesson ? cur : STATIONS.filter(function (s) { return s.lesson; })[0]);
+  }
+  function drillTarget() {
+    var cur = current(), lv = cur ? cur.level : LEVELS[LEVELS.length - 1];
+    if (lv.id === 'kana') return { href: '#/practice/kana/' + (best('kana:h-basic') >= 80 ? 'k-basic' : 'h-basic'), sub: 'ทดสอบด่วนคานะ' };
+    var sets = setsOf(BW[lv.id] || []), n = 1;
+    for (var i = 0; i < sets.length; i++) { if (best('w:' + lv.id + ':' + (i + 1)) < 80) { n = i + 1; break; } }
+    return { href: '#/practice/w/' + lv.id + '/' + n, sub: 'คำศัพท์ ' + lv.code + ' ชุดที่ ' + n };
+  }
+  function todayStops() {
+    var D = daily(), due = dueIds().length, total = Object.keys(S.srs).length, cur = current(), tdy = dayKey();
+    var studied = STATIONS.some(function (s) { var d = S.done[s.id]; return d && !d.placed && d.at === tdy; });
+    var sp = speakStation(), dr = drillTarget();
+    return [
+      { k: 'review', t: 'ทบทวนการ์ด', sub: due ? 'ถึงกำหนด ' + due + ' ใบ' : total ? 'วันนี้ไม่มีการ์ดค้าง' : 'ผ่านบทแรกแล้วจะมีการ์ดให้ทบทวน', done: !due, skip: !total, href: '#/review' },
+      { k: 'learn', t: 'เรียนสถานีถัดไป', sub: cur ? cur.code + ' ' + cur.title : 'ครบทุกสถานีแล้ว', done: studied || !cur, href: cur ? stationHref(cur) : '#/' },
+      { k: 'speak', t: 'ฝึกพูด', sub: sp ? 'ประโยคของ ' + sp.code + ' ' + sp.title : 'บทสนทนา', done: !!D.speak, href: sp ? '#/speak/ls/' + sp.id : '#/speak' },
+      { k: 'drill', t: 'ฝึกสั้นๆ', sub: dr.sub, done: !!D.drill, href: dr.href }
+    ];
+  }
+  function ticketHTML() {
+    var stops = todayStops(), cur = stops.filter(function (s) { return !s.done; })[0], x = xpToday(), g = S.settings.goal;
+    var doneN = stops.filter(function (s) { return s.done; }).length;
+    return '<div class="ticket today-ticket" id="tkt">' +
+      '<div class="ticket-top"><span class="jp">本日の乗車券</span><span>รอบเรียนวันนี้ <span class="num">' + doneN + '/4</span></span></div>' +
+      '<ol class="tstops">' + stops.map(function (s, i) {
+        var on = cur && cur.k === s.k;
+        return '<li class="tstop' + (s.skip ? ' skip' : s.done ? ' done' : '') + (on ? ' cur' : '') + '" data-stop="' + s.k + '">' +
+          '<span class="hole" aria-hidden="true"></span>' +
+          '<a class="tstop-main" href="' + s.href + '"><b>' + esc(s.t) + '</b><small>' + esc(s.sub) + '</small><span class="sr-only">' + (s.skip ? 'ข้ามไปก่อน' : s.done ? 'เสร็จแล้ว' : on ? 'ขั้นตอนถัดไป' : 'ยังไม่ได้ทำ') + '</span></a></li>';
+      }).join('') + '</ol>' +
+      '<div class="ticket-go">' + (cur
+        ? '<a class="btn primary" href="' + cur.href + '">ไปต่อ: ' + esc(cur.t) + icon('arrow', 'i-sm') + '</a>'
+        : '<span class="hanko kanso" id="kanso">完走</span><div><b>ครบรอบวันนี้แล้ว</b><div class="soft">พรุ่งนี้มาเจาะตั๋วใหม่กัน</div></div>') + '</div>' +
+      '<div class="ticket-meta"><span title="แต้มที่ได้จากการตอบถูก ทบทวน และผ่านสถานี">XP วันนี้ <b class="num">' + x + ' / ' + g + '</b></span><span>เรียนต่อเนื่อง <b class="num">' + streak() + '</b> วัน</span></div>' +
+    '</div>';
+  }
+  function punchTicket() {
+    var D = daily(), stops = todayStops(), changed = false, reduce = REDUCED, n = 0;
+    stops.forEach(function (s) {
+      if (!s.done || s.skip || D.punched.indexOf(s.k) > -1) return;
+      D.punched.push(s.k); changed = true;
+      var li = $('.tstop[data-stop="' + s.k + '"]'), idx = n++; if (!li || reduce) return;
+      li.style.setProperty('--pi', idx); li.classList.add('punching');
+      setTimeout(function () { li.classList.remove('punching'); li.style.removeProperty('--pi'); }, 1100 + idx * 160);
+    });
+    if (stops.every(function (s) { return s.done; }) && !D.cele) {
+      D.cele = 1; changed = true;
+      var k = $('#kanso'); if (k && !reduce) { k.style.animationDelay = (n * 160 + 440) + 'ms'; k.classList.add('stamp-in'); }
+    }
+    if (changed) save();
+  }
+
   function viewMap() {
     var cur = current(), total = STATIONS.length, dc = doneCount();
     var due = dueIds().length, x = xpToday(), g = S.settings.goal;
@@ -647,28 +712,12 @@
         '<h1 class="title">แผนที่การเรียน</h1>' +
         '<p class="lead">จากศูนย์ถึง N1 ใน ' + LEVELS.length + ' สาย ' + total + ' สถานี สอบท้ายบทผ่าน 80% รับตราประทับ' + (doneCount() ? '' : ' <a href="#/placement">เคยเรียนมาแล้ว? วัดระดับ</a>') + '</p>' +
 
-        '<div class="split">' +
-          '<div class="ticket">' +
-            '<div class="ticket-top"><span class="jp">乗車券</span><span>ตั๋วเรียน Kana to N1</span></div>' +
+        '<div class="split">' + ticketHTML() +
+          '<div class="card pad journey">' +
             '<div class="ticket-route"><div class="stn">ゼロ<small>เริ่มจากศูนย์</small></div><div class="arrow" aria-hidden="true"></div><div class="stn">N1<small>สถานีปลายทาง</small></div></div>' +
             '<div class="ticket-now">ตอนนี้อยู่ ' + where + '</div>' +
             '<div class="ticket-stamps">' + stamps + '</div>' +
-            '<div class="ticket-meta"><span>ผ่านแล้ว <b class="num">' + dc + ' / ' + total + '</b> สถานี</span><span>ออกตั๋ว <span class="num">' + S.created + '</span></span></div>' +
-          '</div>' +
-
-          '<div class="card pad today">' +
-            '<div class="today-row">' +
-              '<div><div class="stat-label">XP วันนี้</div><div class="big-num">' + x + '<small>/ ' + g + '</small></div></div>' +
-              '<div><div class="stat-label">ต่อเนื่อง</div><div class="big-num">' + streak() + '<small>วัน</small></div></div>' +
-              '<div><div class="stat-label">การ์ดถึงกำหนด</div><div class="big-num">' + due + '<small>ใบ</small></div></div>' +
-            '</div>' +
-            '<div class="bar"><i style="transform:scaleX(' + Math.min(1, x / g) + ')"></i></div>' +
-            (cur ?
-              '<div class="next-stop"><span class="line-chip" style="' + lvVars(cur.level) + '"><span>' + pad2(cur.num) + '</span></span>' +
-              '<div class="txt"><div class="stat-label">สถานีถัดไป <span class="num">' + cur.code + '</span></div><div class="h3">' + esc(cur.title) + '</div></div>' +
-              '<a class="btn primary" href="' + stationHref(cur) + '">เรียนต่อ' + icon('arrow', 'i-sm') + '</a></div>'
-              : '<div class="next-stop"><div class="txt"><div class="h3">ครบทุกสถานีแล้ว</div><div class="stat-label">ทบทวนการ์ดทุกวันเพื่อรักษาความจำ</div></div></div>') +
-            (due ? '<a class="btn" href="#/review">' + icon('layers', 'i-sm') + 'ทบทวน ' + due + ' ใบ</a>' : '') +
+            '<div class="ticket-meta"><span>ผ่านแล้ว <b class="num">' + dc + ' / ' + total + '</b> สถานี</span><a href="#/stats">ดูสถิติ</a></div>' +
           '</div>' +
         '</div>' +
 
@@ -676,7 +725,7 @@
           '<div class="map-legend"><span><i class="lg-pin"></i>ยังไม่ผ่าน</span><span><i class="lg-pin f"></i>ผ่านแล้ว</span><span><i class="lg-pin x"></i>สอบท้ายสาย</span><span><span class="here-tag sample">現在地</span>อยู่ที่นี่</span></div>' +
         '</section>' +
 
-        '<section class="section"><div class="section-head"><h2 class="h2">ทุกสาย</h2><span class="muted">ขอบเขตอ้างอิงจากข้อมูลทั่วไปของ JLPT ไม่ใช่รายการทางการ</span></div>' +
+        '<section class="section allines"><div class="section-head"><h2 class="h2">ทุกสาย</h2><span class="muted">ขอบเขตอ้างอิงจากข้อมูลทั่วไปของ JLPT ไม่ใช่รายการทางการ</span></div>' +
           '<div class="card">' + LEVELS.map(function (lv) {
             var c = levelCount(lv), n = lv.stations.length;
             return '<a class="list-row" href="' + stationHref(lv.stations.filter(function (s) { return !isDone(s.id); })[0] || lv.stations[0]) + '">' +
@@ -691,7 +740,7 @@
       html: html,
       mount: function () {
         var el = $('#map'), lastW = -1;
-        drawMap(); lastW = el.clientWidth;
+        drawMap(); lastW = el.clientWidth; punchTicket();
         if ('ResizeObserver' in window) {
           onR = new ResizeObserver(function () { var w = el.clientWidth; if (w !== lastW) { lastW = w; drawMap(); } });
           onR.observe(el);
@@ -751,13 +800,13 @@
   }
   function vmapHTML(cur) {
     return '<div class="vmap">' + LEVELS.map(function (lv) {
-      var n = lv.stations.length;
-      return '<div class="vline-head"><span class="line-chip" style="' + lvVars(lv) + '"><span>' + esc(lv.code) + '</span></span><div class="t"><b>' + esc(lv.title) + '</b><small><span class="num">' + levelCount(lv) + '/' + n + '</span> สถานี</small></div></div>' +
+      var n = lv.stations.length, open = cur ? cur.level === lv : lv === LEVELS[LEVELS.length - 1];
+      return '<details class="vline"' + (open ? ' open' : '') + '><summary class="vline-head"><span class="line-chip" style="' + lvVars(lv) + '"><span>' + esc(lv.code) + '</span></span><div class="t"><b>' + esc(lv.title) + '</b><small><span class="num">' + levelCount(lv) + '/' + n + '</span> สถานี' + (levelDone(lv) ? ' ผ่านครบแล้ว' : '') + '</small></div>' + icon('right', 'vchev') + '</summary>' +
         lv.stations.map(function (st, j) {
           var here = cur && cur.id === st.id;
           return '<a class="vstop ' + st.kind + (isDone(st.id) ? ' done' : '') + (here ? ' here' : '') + (j === 0 ? ' first' : '') + (j === n - 1 ? ' last' : '') + '" href="' + stationHref(st) + '" style="' + lvVars(lv) + '">' +
-            '<span class="pin">' + pinInner(st) + '</span><span class="txt"><b>' + esc(st.title) + '</b><small><span class="num">' + st.code + '</span><span class="jp">' + esc(st.jp) + '</span></small></span>' + (here ? '<span class="here-tag">現在地</span>' : '') + '</a>';
-        }).join('');
+            '<span class="pin">' + pinInner(st) + '</span><span class="txt"><b>' + esc(st.title) + '</b><small><span class="num">' + st.code + '</span><span class="jp">' + esc(st.jp) + '</span>' + (isDone(st.id) ? '<span class="sr-only">ผ่านแล้ว</span>' : '') + '</small></span>' + (here ? '<span class="here-tag">現在地<span class="sr-only">อยู่ที่นี่</span></span>' : '') + '</a>';
+        }).join('') + '</details>';
     }).join('') + '</div>';
   }
 
@@ -778,19 +827,18 @@
     if (st.kind === 'exam') return viewQuiz(st);
     var ls = st.lesson, lv = st.level, isKana = st.kind === 'kana';
     var tabs = isKana
-      ? [['intro', 'อธิบาย'], ['kana', 'ตัวอักษร', ls.kana.length], ['vocab', 'คำฝึกอ่าน', ls.vocab.length], ['quiz', 'แบบทดสอบ']]
-      : [['intro', 'อธิบาย'], ['vocab', 'คำศัพท์', ls.vocab.length], ['grammar', 'ไวยากรณ์', ls.grammar.length], ['kanji', 'คันจิ', ls.kanji.length], ['quiz', 'แบบทดสอบ']];
+      ? [['intro', 'อธิบาย'], ['kana', 'ตัวอักษร', ls.kana.length], ['vocab', 'คำฝึกอ่าน', ls.vocab.length], ['speak', 'พูด'], ['quiz', 'แบบทดสอบ']]
+      : [['intro', 'อธิบาย'], ['vocab', 'คำศัพท์', ls.vocab.length], ['grammar', 'ไวยากรณ์', ls.grammar.length], ['kanji', 'คันจิ', ls.kanji.length], ['speak', 'พูด'], ['quiz', 'แบบทดสอบ']];
     if (!tabs.some(function (t) { return t[0] === tab; })) tab = 'intro';
     if (tab === 'quiz') { location.replace('#/quiz/' + st.id); return ''; }
+    if (tab === 'speak') { location.replace('#/speak/ls/' + st.id); return ''; }
 
     var body = '';
     if (tab === 'intro') {
       body = '<p class="prose">' + esc(ls.intro) + '</p>' +
         (ls.tips ? '<ul class="tips" style="' + lvVars(lv) + '">' + ls.tips.map(function (t) { return '<li>' + esc(t) + '</li>'; }).join('') + '</ul>' : '') +
-        '<div class="steps">' + tabs.slice(1).map(function (t, i) {
-          return '<a href="#/lesson/' + st.id + '/' + t[0] + '"><div class="n">' + (i + 1) + '</div><div class="t">' + t[1] + '</div><div class="s">' +
-            (t[0] === 'quiz' ? '10 ข้อ ผ่านที่ 80%' : t[2] + ' รายการ') + '</div></a>';
-        }).join('') + '</div>';
+        '<p class="soft" style="margin-top:24px">เรียนตามแท็บด้านบนจากซ้ายไปขวา แล้วฝึกพูดประโยคของบท และทำแบบทดสอบ 10 ข้อ ได้ 80% ขึ้นไปจึงผ่านสถานี</p>' +
+        '<div class="row-actions" style="margin-top:16px"><a class="btn primary" href="#/lesson/' + st.id + '/' + tabs[1][0] + '">เริ่มที่' + tabs[1][1] + icon('arrow', 'i-sm') + '</a></div>';
     } else if (tab === 'kana') {
       body = '<div class="vhead"><p class="soft">แตะตัวอักษรเพื่อฟังเสียง</p><div class="row-actions"><a class="btn sm" href="#/write/' + (ls.id === 'k-05' || ls.id === 'k-06' ? 'kata' : 'hira') + '">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a></div></div>' +
         '<div class="ktiles">' + ls.kana.map(function (k) { return '<button class="ktile" data-say="' + esc(k[0]) + '"><span class="ch">' + esc(k[0]) + '</span><span class="rm">' + esc(k[1]) + '</span></button>'; }).join('') + '</div>';
@@ -1004,7 +1052,7 @@
   }
   function renderResult() {
     if (Q.practice) return practiceResult();
-    var st = Q.st, n = Q.qs.length, sc = Q.right / n, pass = sc >= 0.8, nx = nextOf(st), pct = Math.round(sc * 100);
+    var st = Q.st, n = Q.qs.length, sc = Q.right / n, pass = !Q.missRound && sc >= 0.8, nx = nextOf(st), pct = Math.round(sc * 100);
     var first = !isDone(st.id), added = 0;
     if (pass) {
       markDone(st.id, pct);
@@ -1019,12 +1067,15 @@
         ? (st.kind === 'exam' ? 'ผ่าน' + esc(st.level.title) + 'แล้ว ได้ตราประทับประจำสายบนตั๋ว' : 'ผ่านสถานีนี้แล้ว') + (added ? ' เพิ่มการ์ด ' + added + ' ใบเข้ากองทบทวน' : '')
         : 'ได้ ' + pct + '% ต้องได้ 80% ขึ้นไปจึงจะผ่าน ลองทบทวนข้อที่พลาดแล้วทำใหม่') + '</p>' +
       '<div class="row-actions" style="justify-content:center;margin-top:24px">' +
-        (pass && nx ? '<a class="btn primary" href="' + stationHref(nx) + '">สถานีถัดไป: ' + esc(nx.title) + icon('arrow', 'i-sm') + '</a>' : '') +
-        '<button class="btn" data-retry>' + icon('redo', 'i-sm') + 'ทำอีกครั้ง</button>' +
-        (st.kind !== 'exam' ? '<a class="btn ghost" href="#/lesson/' + st.id + '">กลับไปทบทวนบท</a>' : '<a class="btn ghost" href="#/">กลับแผนที่</a>') +
-      '</div>' +
+        (pass
+          ? (st.lesson ? '<a class="btn primary" href="#/speak/ls/' + st.id + '">' + icon('mic', 'i-sm') + 'ฝึกพูดประโยคของบทนี้</a>' : '') +
+            (nx ? '<a class="btn' + (st.lesson ? '' : ' primary') + '" href="' + stationHref(nx) + '">สถานีถัดไป: ' + esc(nx.title) + icon('arrow', 'i-sm') + '</a>' : '')
+          : (Q.miss.length && !Q.missRound ? '<button class="btn primary" data-retry-miss>' + icon('redo', 'i-sm') + 'ฝึกเฉพาะ ' + Q.miss.length + ' ข้อที่พลาด</button>' : '') +
+            '<button class="btn' + (Q.missRound || !Q.miss.length ? ' primary' : '') + '" data-retry>' + icon('redo', 'i-sm') + 'ทำแบบทดสอบใหม่ทั้งชุด</button>' +
+            (st.kind !== 'exam' ? '<a class="btn" href="#/lesson/' + st.id + '">' + icon('book', 'i-sm') + 'กลับไปทบทวนบท</a>' : '')) +
+      '</div>' + (Q.missRound ? '<p class="muted small" style="margin-top:12px">รอบฝึกข้อที่พลาดไม่นับเป็นการสอบผ่านสถานี ทำแบบทดสอบทั้งชุดอีกครั้งเพื่อผ่าน</p>' : '') +
       (Q.miss.length ? '<div class="miss"><div class="h3">ข้อที่พลาด</div><ul style="list-style:none;padding:0;margin:8px 0 0">' + Q.miss.map(function (q) {
-        return '<li><span class="jp">' + esc(q.prompt) + '</span><span class="soft jp">' + esc(q.answer) + '</span></li>';
+        return '<li><span class="jp">' + esc(q.reveal || q.prompt) + '</span><span class="soft jp">' + esc(q.answer) + '</span>' + (q.say ? sayBtn(q.say) : '') + '</li>';
       }).join('') + '</ul></div>' : '') +
     '</div>';
   }
@@ -1099,7 +1150,7 @@
   function slowBtn(text) { return '<button class="btn sm ghost" data-say-slow="' + esc(text) + '">' + icon('sound', 'i-sm') + 'ช้าลง</button>'; }
   function micOn(btn, on) { if (!btn) return; btn.classList.toggle('rec', on); var s = $('span', btn); if (s) { if (on) { btn.dataset.lbl = s.textContent; s.textContent = 'กำลังฟัง…'; } else if (btn.dataset.lbl) s.textContent = btn.dataset.lbl; } }
   function readLine(r) { return '<div class="tr">' + esc(String(r).replace(/\s+/g, ' ')) + '</div>' + (S.settings.romaji ? '<div class="tro">' + esc(romaji(r)) + '</div>' : ''); }
-  function spBest(key, pct) { var prev = best(key); if (pct > prev) { S.drill[key] = pct; } addXP(Math.max(2, Math.round(pct / 20))); save(); return prev; }
+  function spBest(key, pct) { markDaily('speak'); var prev = best(key); if (pct > prev) { S.drill[key] = pct; } addXP(Math.max(2, Math.round(pct / 20))); save(); return prev; }
   function spResult(key, pct, again, back, note) {
     var prev = spBest(key, pct), pass = pct >= 80;
     return '<div class="card result" style="margin-top:24px">' + (pass ? '<span class="hanko lg stamp-in" style="' + lvVars(LVID[key.split(':').pop()] || LVID.n5) + '">合格<small>' + pct + '%</small></span>' : '') +
@@ -1242,13 +1293,23 @@
 
   /* พูดตาม (shadowing) และแปลแล้วพูด */
   var H = null;
-  function viewSpDrill(kind, lid) {
+  function lessonSpeakPool(st) {
+    var ls = st.lesson, g = [], w = [];
+    if (!ls) return [];
+    if (st.level.id === 'kana') return (ls.kana || []).map(function (k) { return { jp: k[0], r: '', th: 'อ่านว่า ' + k[1] }; });
+    (ls.grammar || []).forEach(function (x) { if (x.ex) g.push({ jp: x.ex, r: x.r || '', th: x.th || x.m }); });
+    (ls.vocab || []).forEach(function (v) { w.push({ jp: v[0], r: v[1], th: v[2] || '' }); });
+    return shuffle(g).concat(shuffle(w)).slice(0, SP_N);
+  }
+  function viewSpDrill(kind, lid, opt) {
+    opt = opt || {};
     lid = BW[lid] ? lid : 'n5';
-    var pool = SENT[lid]; if (!pool || !pool.length) return viewMissing();
-    H = { kind: kind, lid: lid, items: pick(pool, SP_N), i: 0, sc: [], shown: [] };
-    var title = (kind === 'shadow' ? 'พูดตาม ' : 'แปลแล้วพูด ') + LVID[lid].code;
+    var pool = opt.items || SENT[lid]; if (!pool || !pool.length) return viewMissing();
+    H = { kind: kind, lid: lid, items: opt.items ? pool.slice() : pick(pool, SP_N), i: 0, sc: [], shown: [], key: opt.key, back: opt.back, again: opt.again };
+    var title = opt.title || ((kind === 'shadow' ? 'พูดตาม ' : 'แปลแล้วพูด ') + LVID[lid].code);
+    var crumb = opt.crumb || '<a href="#/speak/' + lid + '">ฝึกพูด ' + esc(LVID[lid].code) + '</a>';
     return {
-      html: '<div class="page"><div class="quiz"><nav class="crumbs" aria-label="ตำแหน่ง"><a href="#/speak/' + lid + '">ฝึกพูด ' + esc(LVID[lid].code) + '</a></nav>' +
+      html: '<div class="page"><div class="quiz"><nav class="crumbs" aria-label="ตำแหน่ง">' + crumb + '</nav>' +
         '<h1 class="title title-s">' + esc(title) + '</h1>' +
         '<p class="lead">' + (kind === 'shadow' ? 'ฟังแล้วพูดตามทันทีให้จังหวะตรงกับเสียงต้นฉบับ พูดซ้ำได้หลายครั้ง ระบบเก็บคะแนนที่ดีที่สุด' : 'อ่านภาษาไทยแล้วพูดเป็นภาษาญี่ปุ่น จะพูดหรือพิมพ์ก็ได้ ไม่ต้องตรงทุกคำ ขอให้สื่อความหมายเดียวกัน') + '</p>' + noSrNote() +
         (kind === 'shadow' ? '<div class="row-actions" style="gap:24px;margin-top:16px"><label class="toggle"><input type="checkbox" id="hHide">ฟังอย่างเดียว ซ่อนตัวหนังสือ</label></div>' : '') +
@@ -1260,7 +1321,7 @@
     var box = $('#spBox'); if (!box || !H) return;
     if (H.i >= H.items.length) {
       var pct = Math.round(H.sc.reduce(function (a, b) { return a + (b || 0); }, 0) / H.items.length);
-      box.innerHTML = spResult('sp:' + H.kind + ':' + H.lid, pct, '#/speak/' + H.kind + '/' + H.lid, '#/speak/' + H.lid) +
+      box.innerHTML = spResult(H.key || ('sp:' + H.kind + ':' + H.lid), pct, H.again || ('#/speak/' + H.kind + '/' + H.lid), H.back || ('#/speak/' + H.lid)) +
         '<div class="card vlist" style="margin-top:24px">' + H.items.map(function (it, k) { return '<div class="vrow"><span class="w jp">' + esc(it.jp) + '</span><span class="me">' + esc(it.th) + ' <span class="num muted">' + (H.sc[k] || 0) + '%</span></span>' + sayBtn(it.jp) + '</div>'; }).join('') + '</div>';
       return;
     }
@@ -1430,7 +1491,8 @@
         '<div class="exhead"><h1 class="title title-s">ข้อสอบจำลอง ' + esc(lv.code) + '</h1><div class="extime num" id="exTime" role="timer" aria-live="off"></div></div>' +
         '<div class="seg" id="exTabs" style="margin-top:16px">' + secs.map(function (s, i) { return '<button data-exs="' + i + '">' + esc(s.title) + '</button>'; }).join('') + '</div>' +
         '<div id="exBox"></div></div>',
-      mount: exMount, destroy: function () { if (EX && EX.timer) clearInterval(EX.timer); EX = null; if ('speechSynthesis' in window) speechSynthesis.cancel(); }
+      mount: exMount, destroy: function () { if (EX && EX.timer) clearInterval(EX.timer); EX = null; window.onbeforeunload = null; if ('speechSynthesis' in window) speechSynthesis.cancel(); },
+      leave: function () { return !EX || EX.done || window.confirm('ออกจากข้อสอบตอนนี้ คำตอบทั้งหมดจะหาย ออกเลยไหม?'); }
     };
   }
   function exRender() {
@@ -1464,9 +1526,11 @@
     function tick() {
       if (!EX) return; var left = Math.max(0, EX.end - Date.now()), m = Math.floor(left / 60000), sec = Math.floor(left / 1000) % 60, t = $('#exTime');
       if (t) { t.textContent = 'เหลือ ' + m + ':' + pad2(sec); t.classList.toggle('low', left < 5 * 60000); }
+      if (left < 5 * 60000 && left > 0 && !EX.warned) { EX.warned = true; toast('เหลือเวลา 5 นาที'); }
       if (!left) { toast('หมดเวลา ส่งคำตอบอัตโนมัติแล้ว'); exSubmit(); }
     }
     EX.timer = setInterval(tick, 1000); tick(); exRender();
+    window.onbeforeunload = function (e) { if (EX && !EX.done) { e.preventDefault(); e.returnValue = ''; return ''; } };
     $('.page').addEventListener('click', function (e) {
       var t = e.target.closest('[data-exs],[data-eq],#exSubmit,[data-say-slow]'); if (!t || !EX) return;
       if (t.hasAttribute('data-say-slow')) return speak(t.getAttribute('data-say-slow'), { slow: true });
@@ -1537,7 +1601,7 @@
           if (cards) lv.lessons.forEach(function (ls) { ids = ids.concat(lessonCardIds(ls)); });
         });
         if (ids.length) addCards(ids);
-        save(); toast('ข้ามระดับที่ผ่านแล้ว'); location.hash = '#/'; return;
+        save(); toast('ข้ามระดับที่ผ่านแล้ว'); $('#toast').dataset.keep = 1; location.hash = '#/'; return;
       }
       var p = t.getAttribute('data-eq').split('-'); plAnswer(p.length > 3 ? -1 : +p[2]);
     });
@@ -1551,6 +1615,7 @@
     var html = '<div class="page"><div class="quiz">' +
       '<h1 class="title">ทบทวน</h1>' +
       '<p class="lead">ทุกใบจะกลับมาก่อนที่คุณจะลืม ตอบตามจริงว่าจำได้แค่ไหน ระบบจะเลื่อนรอบถัดไปให้เอง</p>' +
+      '<details class="helpd"><summary>ปุ่มให้คะแนนหมายถึงอะไร</summary><ul><li><b>ลืม</b> นึกไม่ออก การ์ดจะกลับมาอีกในไม่กี่นาที</li><li><b>ยาก</b> นึกออกแต่ช้า รอบถัดไปจะใกล้ขึ้น</li><li><b>จำได้</b> นึกออกตามปกติ</li><li><b>ง่าย</b> รู้ทันที รอบถัดไปจะห่างออกไปมาก</li></ul><p>การ์ดได้มาจากการผ่านแบบทดสอบท้ายสถานี หรือกดเพิ่มจากคลังคำศัพท์และไวยากรณ์</p></details>' +
       '<div id="revBox"></div></div></div>';
     return { html: html, mount: function () { renderCard(total); }, destroy: function () { R = null; } };
   }
@@ -1578,7 +1643,7 @@
       '<div class="quiz-top" style="margin-top:24px"><div class="bar"><i style="transform:scaleX(' + (R.done / Math.max(1, R.n)) + ')"></i></div><span class="num muted" style="font-size:12px">เหลือ ' + (R.ids.length - R.i) + '</span></div>' +
       '<div class="card flash' + (R.flipped ? ' flipped' : '') + '" id="flash" role="button" tabindex="0" aria-label="พลิกการ์ด"><div class="front' + (c.type === 'g' ? ' gram' : f.length > 3 ? ' long' : '') + '">' + esc(f) + '</div>' +
         (R.flipped ? '<div class="back">' + back + '<div style="margin-top:8px">' + sayBtn(c.type === 'k' ? (c.exr || c.k) : c.type === 'g' ? c.ex : c.r) + '</div></div>'
-          : '<div class="hint">แตะการ์ดหรือกด <kbd>Space</kbd> เพื่อดูคำตอบ</div>') +
+          : '<div class="hint">แตะการ์ด<span class="kb-only">หรือกด <kbd>Space</kbd></span>เพื่อดูคำตอบ</div>') +
         '<div class="hint where">' + lvChip(c.level) + '<span>' + esc(c.lesson.title) + '</span></div>' +
       '</div>' +
       (R.flipped ? '<div class="grades">' + [[1, 'ลืม', 'again'], [2, 'ยาก', ''], [3, 'จำได้', ''], [4, 'ง่าย', '']].map(function (g) {
@@ -1881,8 +1946,7 @@
     var html = '<div class="page"><h1 class="title">แบบฝึกหัด</h1>' +
       '<p class="lead">ฝึกตั้งแต่ตัวอักษรตัวแรกจนถึงคำศัพท์และคันจิ N1 ทีละชุด ชุดละ ' + SET_N + ' ข้อ ได้ 80% ขึ้นไปถือว่าผ่าน</p>';
     if (!kind) {
-      html += '<section class="section"><a class="card pcard wide spgo" href="#/speak">' + icon('mic') + '<span class="pt">ฝึกพูดและฟัง</span><span class="pd">บทสนทนา ' + TALK.length + ' บท พูดตาม แปลแล้วพูด ฟังจับใจความ เว็บฟังเสียงแล้วให้คะแนน</span></a>' +
-        '<div class="pcards" style="margin-top:16px"><a class="card pcard" href="#/texts">' + icon('book') + '<span class="pt">บทอ่าน</span><span class="pd">' + READS.length + ' เรื่องพร้อมคำถามจับใจความ</span></a>' +
+      html += '<section class="section"><div class="pcards"><a class="card pcard" href="#/texts">' + icon('book') + '<span class="pt">บทอ่าน</span><span class="pd">' + READS.length + ' เรื่องพร้อมคำถามจับใจความ</span></a>' +
         '<a class="card pcard" href="#/exam">' + icon('check') + '<span class="pt">ข้อสอบจำลอง JLPT</span><span class="pd">จับเวลา แบ่งพาร์ตเหมือนสอบจริง</span></a>' +
         '<a class="card pcard" href="#/placement">' + icon('target') + '<span class="pt">วัดระดับ</span><span class="pd">เคยเรียนมาแล้ว ทดสอบเพื่อข้ามไปเริ่มระดับที่เหมาะ</span></a></div></section>';
       html += '<section class="section"><div class="section-head"><h2 class="h2">เริ่มจากศูนย์: คานะ</h2><a class="btn sm ghost" href="#/write">' + icon('pen', 'i-sm') + 'ฝึกเขียน</a></div>' +
@@ -1996,6 +2060,7 @@
   }
   function practiceResult() {
     var P = Q.practice, n = Q.qs.length, pct = Math.round(Q.right / n * 100), pass = pct >= 80, prev = P.key ? best(P.key) : 0;
+    markDaily(P.kind === 'listen' ? 'speak' : 'drill');
     if (P.key && pct > prev) { S.drill[P.key] = pct; save(); }
     var sets = P.kind === 'w' || P.kind === 'k' ? setsOf((P.kind === 'w' ? BW : BK)[P.lid]).length : 0;
     var next = typeof P.n === 'number' && P.n < sets ? '#/practice/' + P.kind + '/' + P.lid + '/' + (P.n + 1) : null;
@@ -2142,15 +2207,21 @@
       '<p class="muted" style="font-size:12px;margin-top:24px">เนื้อหาเป็นชุดเริ่มต้นสำหรับแต่ละระดับ ใช้คู่กับหนังสือเรียนและข้อสอบเก่าจะได้ผลดีที่สุด ไอคอนจาก Lucide</p></div>';
   }
   function viewMore() {
-    var items = [['#/account', 'user', 'บัญชี'], ['#/words', 'words', 'คลังคำศัพท์'], ['#/practice', 'target', 'แบบฝึกหัด'], ['#/speak', 'mic', 'ฝึกพูด'], ['#/texts', 'book', 'บทอ่าน'], ['#/kana', 'grid', 'ตารางคานะ'], ['#/kanji', 'type', 'คันจิ'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/write', 'pen', 'ฝึกเขียน'], ['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/search/', 'search', 'ค้นหา']];
-    return '<div class="page page-narrow"><h1 class="title">เมนู</h1><div class="card" style="margin-top:24px">' + items.map(function (x) {
-      return '<a class="list-row" href="' + x[0] + '">' + icon(x[1], 'muted') + '<span class="grow">' + x[2] + '</span>' + icon('right', 'muted') + '</a>';
-    }).join('') + '</div></div>';
+    var groups = [
+      ['คลัง', [['#/words', 'words', 'คำศัพท์'], ['#/kanji', 'type', 'คันจิ'], ['#/grammar', 'book', 'ไวยากรณ์'], ['#/kana', 'grid', 'ตารางคานะ'], ['#/texts', 'book', 'บทอ่าน'], ['#/write', 'pen', 'ฝึกเขียน']]],
+      ['ทดสอบ', [['#/exam', 'check', 'ข้อสอบจำลอง JLPT'], ['#/placement', 'target', 'วัดระดับ']]],
+      ['ของฉัน', [['#/stats', 'chart', 'สถิติ'], ['#/settings', 'sliders', 'ตั้งค่า'], ['#/account', 'user', 'บัญชี'], ['#/search/', 'search', 'ค้นหา']]]
+    ];
+    return '<div class="page page-narrow"><h1 class="title">เมนู</h1>' + groups.map(function (g) {
+      return '<h2 class="h3 more-h">' + g[0] + '</h2><div class="card">' + g[1].map(function (x) {
+        return '<a class="list-row" href="' + x[0] + '">' + icon(x[1], 'muted') + '<span class="grow">' + x[2] + '</span>' + icon('right', 'muted') + '</a>';
+      }).join('') + '</div>';
+    }).join('') + '</div>';
   }
 
   /* ================= events ================= */
   document.addEventListener('click', function (e) {
-    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy],[data-forget],[data-lg-edit],[data-add-word],[data-add-set],#wmore,[data-theme-set]');
+    var t = e.target.closest('[data-say],[data-kanji],[data-close],[data-go],[data-opt],#qnext,[data-retry],[data-retry-miss],[data-grade],#flash,[data-add-lesson],[data-add-card],[data-read-done],[data-goal],#exp,#reset,[data-login],[data-lg],[data-lg-go],#guestGo,#logout,#delMe,#pinOff,#switchAcc,#syncNow,[data-copy],[data-forget],[data-lg-edit],[data-add-word],[data-add-set],#wmore,[data-theme-set]');
     if (!t) { if (e.target.id === 'sheet') closeSheet(); return; }
     if (t.hasAttribute('data-say')) {
       e.preventDefault(); speak(t.getAttribute('data-say'));
@@ -2211,7 +2282,8 @@
       return answerQ(o.correct);
     }
     if (t.id === 'qnext' && Q) { Q.i++; return renderQ(); }
-    if (t.hasAttribute('data-retry')) { if (Q && Q.drill) return route(); return route(); }
+    if (t.hasAttribute('data-retry')) return route();
+    if (t.hasAttribute('data-retry-miss') && Q) { Q.qs = shuffle(Q.miss.slice()); Q.miss = []; Q.i = 0; Q.right = 0; Q.missRound = true; window.scrollTo(0, 0); return renderQ(); }
     if (t.hasAttribute('data-grade')) return grade(+t.getAttribute('data-grade'));
     if (t.id === 'flash' && R && !R.flipped) { R.flipped = true; return renderCard(); }
     if (t.hasAttribute('data-add-lesson')) { var n = addCards(lessonCardIds(SID[t.getAttribute('data-add-lesson')].lesson)); toast(n ? 'เพิ่ม ' + n + ' ใบเข้ากองทบทวนแล้ว' : 'อยู่ในกองทบทวนครบแล้ว'); return route(); }
